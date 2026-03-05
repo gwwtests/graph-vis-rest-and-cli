@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Graph Visualization</title>
+    <script type="text/javascript"
+        src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/10.0.2/standalone/umd/vis-network.min.js"
+        onerror="loadLocalFallback()"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/10.0.2/styles/vis-network.min.css"
+        rel="stylesheet" type="text/css"
+        onerror="this.href='/static/deps/vis-network.min.css'" />
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        #mode-toggle {
+            position: fixed;
+            left: 20px;
+            top: 20px;
+            padding: 8px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 100;
+            font-size: 8px;
+        }
+        #mode-toggle:hover {
+            background-color: #45a049;
+        }
+        #input-container {
+            width: 80%;
+            margin: 0 auto 20px auto;
+            display: flex;
+            gap: 10px;
+        }
+        #relationship-input, #bulk-input {
+            flex-grow: 1;
+            padding: 10px;
+            font-size: 16px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+        }
+        #bulk-input {
+            display: none;
+            min-height: 100px;
+            font-family: monospace;
+        }
+        #add-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #add-button:hover {
+            background-color: #45a049;
+        }
+        #graph {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ccc;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            text-align: center;
+        }
+        .modal-buttons {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        .modal-button {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .yes-button {
+            background-color: #ff4444;
+            color: white;
+        }
+        .no-button {
+            background-color: #666;
+            color: white;
+        }
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+        #ws-status {
+            position: fixed;
+            right: 20px;
+            top: 20px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #ccc;
+            z-index: 100;
+            title: "WebSocket status";
+        }
+    </style>
+</head>
+<body>
+    <button id="mode-toggle">Multi</button>
+    <div id="ws-status" title="WebSocket: disconnected"></div>
+    <div id="input-container">
+        <input type="text" id="relationship-input"
+            placeholder="Enter relationship as: start edge end (e.g., 'John loves Mary')">
+        <textarea id="bulk-input"
+            placeholder="Enter multiple relationships (one per line or space-separated):&#10;Alice calls Bob&#10;Bob calls Charlie&#10;Charlie emails David"></textarea>
+        <button id="add-button">Add</button>
+    </div>
+    <div id="graph"></div>
+
+    <div id="overlay" class="overlay"></div>
+    <div id="delete-modal" class="modal">
+        <p>Should I delete vertex</p>
+        <p id="vertex-name" style="font-weight: bold; margin: 10px 0;"></p>
+        <div class="modal-buttons">
+            <button class="modal-button yes-button" id="yes-button">Yes</button>
+            <button class="modal-button no-button" id="no-button">No</button>
+        </div>
+    </div>
+
+    <script>
+        // Local fallback loader for vis-network
+        function loadLocalFallback() {
+            const s = document.createElement('script');
+            s.src = '/static/deps/vis-network.min.js';
+            document.head.appendChild(s);
+        }
+
+        // ---------------------------------------------------------------
+        // API integration
+        // ---------------------------------------------------------------
+        const api = {
+            async getGraph() {
+                const r = await fetch('/api/graph');
+                return r.json();
+            },
+            async addNode(id, label) {
+                return fetch('/api/add-node', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id, label}),
+                });
+            },
+            async removeNode(id) {
+                return fetch('/api/remove-node', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id}),
+                });
+            },
+            async addEdge(from, to, label, id) {
+                const body = {from, to, label};
+                if (id) body.id = id;
+                return fetch('/api/add-edge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+            },
+            async removeEdge(id) {
+                return fetch('/api/remove-edge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id}),
+                });
+            },
+            async addTriplet(subject, predicate, object) {
+                return fetch('/api/add-triplet', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({subject, predicate, object}),
+                });
+            },
+        };
+
+        // ---------------------------------------------------------------
+        // WebSocket client with auto-reconnect
+        // ---------------------------------------------------------------
+        const wsStatus = document.getElementById('ws-status');
+        let ws = null;
+        let wsReconnectTimer = null;
+
+        function setWsState(state) {
+            const colors = {connected: '#4CAF50', connecting: '#FFC107', disconnected: '#F44336'};
+            wsStatus.style.backgroundColor = colors[state] || '#ccc';
+            wsStatus.title = 'WebSocket: ' + state;
+        }
+
+        function connectWebSocket() {
+            if (ws && ws.readyState <= WebSocket.OPEN) return;
+            setWsState('connecting');
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+            ws.onopen = () => {
+                setWsState('connected');
+                if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+            };
+
+            ws.onclose = () => {
+                setWsState('disconnected');
+                ws = null;
+                wsReconnectTimer = setTimeout(connectWebSocket, 2000);
+            };
+
+            ws.onerror = () => {
+                ws.close();
+            };
+
+            ws.onmessage = (evt) => {
+                const msg = JSON.parse(evt.data);
+                handleWsEvent(msg);
+            };
+        }
+
+        function handleWsEvent(msg) {
+            const {event, data} = msg;
+            switch (event) {
+                case 'add-node':
+                    if (!nodes.get(data.id)) nodes.add(data);
+                    break;
+                case 'remove-node':
+                    if (data.connected_edges) edges.remove(data.connected_edges);
+                    nodes.remove(data.id);
+                    break;
+                case 'add-edge':
+                    if (!edges.get(data.id)) edges.add(data);
+                    break;
+                case 'remove-edge':
+                    edges.remove(data.id);
+                    break;
+                case 'add-triplet':
+                    if (data.nodes) data.nodes.forEach(n => { if (!nodes.get(n.id)) nodes.add(n); });
+                    if (data.edge && !edges.get(data.edge.id)) edges.add(data.edge);
+                    break;
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Initialize vis-network
+        // ---------------------------------------------------------------
+        const nodes = new vis.DataSet();
+        const edges = new vis.DataSet();
+
+        const container = document.getElementById('graph');
+        const data = { nodes: nodes, edges: edges };
+        const options = {
+            nodes: {
+                shape: 'circle',
+                size: 30,
+                font: { size: 14 }
+            },
+            edges: {
+                arrows: 'to',
+                font: { size: 14, align: 'middle' }
+            },
+            physics: {
+                enabled: true,
+                stabilization: false,
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: {
+                    gravitationalConstant: -50,
+                    centralGravity: 0.01,
+                    springLength: 200,
+                    springConstant: 0.08
+                }
+            }
+        };
+        const network = new vis.Network(container, data, options);
+
+        // ---------------------------------------------------------------
+        // Input mode handling
+        // ---------------------------------------------------------------
+        const modeToggle = document.getElementById('mode-toggle');
+        const singleInput = document.getElementById('relationship-input');
+        const bulkInput = document.getElementById('bulk-input');
+        let isMultilineMode = true;
+
+        function toggleInputMode(block_mode = null) {
+            if (block_mode !== null) {
+                isMultilineMode = block_mode;
+            } else {
+                isMultilineMode = !isMultilineMode;
+            }
+            singleInput.style.display = isMultilineMode ? 'none' : 'block';
+            bulkInput.style.display = isMultilineMode ? 'block' : 'none';
+            modeToggle.textContent = isMultilineMode ? 'Single' : 'Multi';
+        }
+
+        modeToggle.addEventListener('click', () => toggleInputMode());
+        toggleInputMode(true);
+
+        // ---------------------------------------------------------------
+        // Delete modal
+        // ---------------------------------------------------------------
+        const modal = document.getElementById('delete-modal');
+        const overlay = document.getElementById('overlay');
+        const vertexName = document.getElementById('vertex-name');
+        const yesButton = document.getElementById('yes-button');
+        const noButton = document.getElementById('no-button');
+
+        let selectedNode = null;
+        let lastClickTime = 0;
+
+        network.on('click', function(params) {
+            const currentTime = new Date().getTime();
+            const clickDelta = currentTime - lastClickTime;
+            if (params.nodes.length > 0) {
+                if (clickDelta < 300) {
+                    selectedNode = params.nodes[0];
+                    showDeleteModal(selectedNode);
+                }
+            }
+            lastClickTime = currentTime;
+        });
+
+        function showDeleteModal(nodeId) {
+            const node = nodes.get(nodeId);
+            vertexName.textContent = `"${node.label}"?`;
+            modal.style.display = 'block';
+            overlay.style.display = 'block';
+        }
+
+        function hideDeleteModal() {
+            modal.style.display = 'none';
+            overlay.style.display = 'none';
+            selectedNode = null;
+        }
+
+        yesButton.addEventListener('click', async () => {
+            if (selectedNode) {
+                await api.removeNode(selectedNode);
+                hideDeleteModal();
+            }
+        });
+
+        noButton.addEventListener('click', hideDeleteModal);
+
+        // ---------------------------------------------------------------
+        // Process text into triplets
+        // ---------------------------------------------------------------
+        function processText(text) {
+            const lines = text.split(/[\n\r]+/).map(line => line.trim()).filter(line => line);
+            const allWords = lines.join(' ').split(/\s+/).filter(word => word);
+            const triplets = [];
+            for (let i = 0; i < allWords.length - 2; i += 3) {
+                if (i + 2 < allWords.length) {
+                    const start = allWords[i].replace(/[;.,!?]$/, '');
+                    const edge = allWords[i + 1].replace(/[;.,!?]$/, '');
+                    const end = allWords[i + 2].replace(/[;.,!?]$/, '');
+                    triplets.push([start, edge, end]);
+                }
+            }
+            return triplets;
+        }
+
+        // ---------------------------------------------------------------
+        // Input handling — server-first mutations
+        // ---------------------------------------------------------------
+        async function handleInput() {
+            if (isMultilineMode) {
+                const text = bulkInput.value.trim();
+                const triplets = processText(text);
+                for (const [start, edge, end] of triplets) {
+                    await api.addTriplet(start, edge, end);
+                }
+                bulkInput.value = '';
+            } else {
+                const input = singleInput.value.trim();
+                const words = input.split(/\s+/);
+                if (words.length === 3) {
+                    const [start, edge, end] = words.map(w => w.replace(/[;.,!?]$/, ''));
+                    await api.addTriplet(start, edge, end);
+                    singleInput.value = '';
+                } else {
+                    alert('Please enter exactly three words: start edge end');
+                }
+            }
+        }
+
+        document.getElementById('add-button').addEventListener('click', handleInput);
+        singleInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleInput();
+        });
+
+        // ---------------------------------------------------------------
+        // Initial load from server + connect WebSocket
+        // ---------------------------------------------------------------
+        async function init() {
+            try {
+                const graph = await api.getGraph();
+                if (graph.nodes) graph.nodes.forEach(n => { if (!nodes.get(n.id)) nodes.add(n); });
+                if (graph.edges) graph.edges.forEach(e => { if (!edges.get(e.id)) edges.add(e); });
+            } catch (err) {
+                console.error('Failed to load initial graph:', err);
+            }
+            connectWebSocket();
+        }
+
+        init();
+    </script>
+</body>
+</html>
