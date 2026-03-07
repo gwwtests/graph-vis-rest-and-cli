@@ -1,0 +1,4 @@
+source,target,relationship
+Alice,Bob,knows
+Bob,Charlie,likes
+Charlie,Alice,helps

@@ -1,0 +1,4 @@
+3 3
+Alice Bob knows
+Bob Charlie likes
+Charlie Alice helps
