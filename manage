@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Docker orchestration for graph-vis E2E tests
+set -euo pipefail
+
+PREFIX="${GRAPH_VIS_PREFIX:-graph-vis-}"
+IMAGE="${PREFIX}e2e"
+CONTAINER="${PREFIX}e2e-run"
+
+usage() {
+    echo "Usage: $0 {build|test|status|clean|logs}"
+    echo ""
+    echo "Commands:"
+    echo "  build   Build the E2E test Docker image"
+    echo "  test    Run E2E tests in Docker (auto-builds if needed)"
+    echo "  status  Show container/image status"
+    echo "  clean   Remove containers and images"
+    echo "  logs    Show logs from last test run"
+    exit 1
+}
+
+cmd_build() {
+    echo "Building ${IMAGE}..."
+    docker build -t "${IMAGE}" -f e2e/Dockerfile .
+}
+
+cmd_test() {
+    # Auto-build if image doesn't exist
+    if ! docker image inspect "${IMAGE}" &>/dev/null; then
+        echo "Image not found, building first..."
+        cmd_build
+    fi
+
+    echo "Running E2E tests..."
+    docker run --rm --name "${CONTAINER}" "${IMAGE}"
+}
+
+cmd_status() {
+    echo "=== Images ==="
+    docker images --filter "reference=${IMAGE}" 2>/dev/null || true
+    echo ""
+    echo "=== Containers ==="
+    docker ps -a --filter "name=${PREFIX}" 2>/dev/null || true
+}
+
+cmd_clean() {
+    echo "Cleaning up ${PREFIX}* artifacts..."
+    docker rm -f "${CONTAINER}" 2>/dev/null || true
+    docker rmi -f "${IMAGE}" 2>/dev/null || true
+    echo "Done."
+}
+
+cmd_logs() {
+    docker logs "${CONTAINER}" 2>/dev/null || echo "No container found. Run './manage test' first."
+}
+
+case "${1:-}" in
+    build)  cmd_build ;;
+    test)   cmd_test ;;
+    status) cmd_status ;;
+    clean)  cmd_clean ;;
+    logs)   cmd_logs ;;
+    *)      usage ;;
+esac
