@@ -1,0 +1,2 @@
+{"from": "Alice", "to": "Bob", "label": "knows"}
+{"from": "Bob", "to": "Charlie", "label": "likes"}
