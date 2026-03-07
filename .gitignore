@@ -29,6 +29,9 @@ tmp/
 cache/
 *.log
 
+# Symlinks for Python imports
+graph_rest_cli.py
+
 # OS
 .DS_Store
 Thumbs.db

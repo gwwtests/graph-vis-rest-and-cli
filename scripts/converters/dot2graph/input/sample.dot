@@ -1,0 +1,4 @@
+digraph G {
+    Alice -> Bob [label="knows"];
+    Bob -> Charlie [label="likes"];
+}
