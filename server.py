@@ -1,4 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "fastapi>=0.104.0",
+#     "uvicorn[standard]>=0.24.0",
+#     "websockets>=12.0",
+# ]
+# ///
 """Graph Visualization Server with REST API + WebSocket for multi-client sync."""
 
 import os
