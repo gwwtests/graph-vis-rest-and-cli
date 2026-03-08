@@ -6,10 +6,9 @@ import os
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__),
-                                "..", "scripts", "converters", "graph2ttl"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from graph2ttl import convert, _sanitize_local_name
+from scripts.converters.graph2ttl.graph2ttl import convert, _sanitize_local_name
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__),
                            "..", "scripts", "converters", "graph2ttl", "input")
