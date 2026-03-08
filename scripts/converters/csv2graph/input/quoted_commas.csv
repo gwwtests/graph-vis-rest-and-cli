@@ -1,0 +1,3 @@
+source,target,relationship
+"New York","London","flies_to"
+"San Francisco","Tokyo","connects_to"

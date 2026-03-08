@@ -1,0 +1,3 @@
+source,target,relationship,weight,color
+Alice,Bob,knows,5,red
+Charlie,Dave,likes,3,blue
