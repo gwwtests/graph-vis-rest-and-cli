@@ -1,40 +1,69 @@
 # graph-rest-cli.py
 
-Interactive REPL for the graph visualization server. Connects via REST API and provides command-line graph manipulation with shortcut commands.
+CLI for the graph visualization server. Non-interactive by default (reads stdin for easy piping). Use `--repl` for interactive mode.
 
 ## Usage
 
 ```bash
-./graph-rest-cli.py                        # connect to 127.0.0.1:7849
-./graph-rest-cli.py --port 9999            # custom port
-./graph-rest-cli.py --host 10.0.0.5 -vv   # custom host, debug verbosity
-./graph-rest-cli.py -h                     # show help
+# Pipe commands (default when no args)
+echo "Alice knows Bob" | ./graph-rest-cli.py
+
+# Positional commands
+./graph-rest-cli.py "Alice knows Bob" "Charlie likes Alice" "g"
+
+# Load graph files, then run commands
+./graph-rest-cli.py -l examples/social-network.csv "g"
+./graph-rest-cli.py -l data.csv -l extra.ttl "l nodes"
+
+# Load file, then enter REPL
+./graph-rest-cli.py -l examples/family-tree.dot --repl
+
+# Read commands from file
+./graph-rest-cli.py -i commands.txt
+
+# Interactive REPL
+./graph-rest-cli.py --repl
+
+# Help
+./graph-rest-cli.py help
+./graph-rest-cli.py -h
+./graph-rest-cli.py --help
 ```
 
-## REPL Session Example
+## Environment Variables
 
+Connection settings via env vars (flags override):
+
+```bash
+export GRAPH_VIS_HOST=10.0.0.5
+export GRAPH_VIS_PORT=9999
+echo "g" | ./graph-rest-cli.py
 ```
-Connected to http://127.0.0.1:7849 (0 nodes, 0 edges)
-Type 'help' or '?' for commands.
-graph@127.0.0.1:7849> Alice knows Bob
-Added: Alice —knows→ Bob
-graph@127.0.0.1:7849> Charlie likes Alice
-Added: Charlie —likes→ Alice
-graph@127.0.0.1:7849> l
-Nodes (3):
-  Alice
-  Bob
-  Charlie
-Edges (2):
-  Alice-knows-Bob: Alice —knows→ Bob
-  Charlie-likes-Alice: Charlie —likes→ Alice
-graph@127.0.0.1:7849> d Bob
-Deleted node: Bob (removed 1 edge(s))
-graph@127.0.0.1:7849> L data.csv
-Loaded 15 edges, 8 nodes from data.csv (csv)
-graph@127.0.0.1:7849> q
-Bye.
-```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GRAPH_VIS_HOST` | `127.0.0.1` | Server IP |
+| `GRAPH_VIS_PORT` | `7849` | Server port |
+
+## CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--host HOST` | Server IP (env: `GRAPH_VIS_HOST`) |
+| `--port PORT` | Server port (env: `GRAPH_VIS_PORT`) |
+| `-v / -vv / -vvv` | Verbosity: requests / +headers+timing / +payloads |
+| `-l, --load FILE` | Load graph file before commands (repeatable) |
+| `--stdin` | Read commands from stdin (also default when no args) |
+| `-i, --input FILE` | Read commands from file |
+| `--repl` | Enter interactive REPL mode |
+| `-h, --help` | Show help |
+
+## Execution Order
+
+1. Connect to server
+2. Load all `--load` files (in order)
+3. Execute commands (positional / stdin / input file)
+4. Enter REPL if `--repl` specified
 
 ## Commands
 
@@ -51,22 +80,11 @@ Bye.
 | `help` | `?`, `h` | — | Show command reference |
 | `quit` / `exit` | `q`, `Ctrl+D` | — | Exit REPL |
 
-**Shorthand:** 3 bare words are treated as `add` — typing `Alice knows Bob` is the same as `add Alice knows Bob`.
+**Shorthand:** 3 bare words are treated as `add` — `Alice knows Bob` = `add Alice knows Bob`.
 
-## CLI Flags
+**Comments:** Lines starting with `#` are skipped (useful in command files).
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--host` | `127.0.0.1` | Server IP address |
-| `--port` | `7849` | Server port |
-| `-v` | — | Verbose: show HTTP method + URL + status |
-| `-vv` | — | Debug: add headers + timing |
-| `-vvv` | — | Trace: add full request/response payloads |
-| `-h, --help` | — | Show usage and exit |
-
-## Load Command
-
-The `L` / `Load` command detects file format by extension and converts via scripts in `scripts/converters/`:
+## Load Format Support
 
 | Extension | Converter | Dependencies |
 |-----------|-----------|-------------|
@@ -75,22 +93,19 @@ The `L` / `Load` command detects file format by extension and converts via scrip
 | `.dot`, `.gv` | dot2graph | stdlib |
 | `.mermaid`, `.mmd` | mermaid2graph | stdlib |
 
-Each converter is a standalone script that can also be used independently:
+## Examples
+
+Ready-to-use example graphs in `examples/`:
 
 ```bash
-# Standalone converter usage
-./scripts/converters/csv2graph/csv2graph.py data.csv           # plain text
-./scripts/converters/csv2graph/csv2graph.py data.csv --csv     # CSV output
-./scripts/converters/csv2graph/csv2graph.py data.csv --jsonl   # JSONL output
-cat data.csv | ./scripts/converters/csv2graph/csv2graph.py     # stdin
+./graph-rest-cli.py -l examples/social-network.csv "g"
+./graph-rest-cli.py -l examples/family-tree.dot "l"
+./graph-rest-cli.py -l examples/web-of-knowledge.ttl "g"
+./graph-rest-cli.py -l examples/software-arch.mermaid "g"
 ```
 
 ## Testing
 
 ```bash
-# CLI unit tests
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
-
-# All server tests
-pytest tests/ -v -p no:playwright
 ```

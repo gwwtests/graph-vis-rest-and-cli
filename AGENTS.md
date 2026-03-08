@@ -24,9 +24,20 @@ Browser (vis-network)  ←→  FastAPI server (server.py)  ←→  graph-rest-cl
 # Open browser
 xdg-open http://localhost:7849
 
-# Or use the CLI REPL
-./graph-rest-cli.py
-./graph-rest-cli.py --host 10.0.0.5 --port 9999 -v
+# CLI: pipe commands (non-interactive default)
+echo "Alice knows Bob" | ./graph-rest-cli.py
+
+# CLI: positional commands
+./graph-rest-cli.py "Alice knows Bob" "g"
+
+# CLI: load a file and show graph
+./graph-rest-cli.py -l examples/social-network.csv "g"
+
+# CLI: interactive REPL
+./graph-rest-cli.py --repl
+
+# CLI: env vars for connection
+GRAPH_VIS_HOST=10.0.0.5 ./graph-rest-cli.py -l data.csv "g"
 ```
 
 ## API Reference
@@ -59,20 +70,27 @@ Connect to `/ws`. Receives JSON broadcast events for all mutations:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GRAPH_VIS_PORT` | `7849` | Server port |
+| `GRAPH_VIS_HOST` | `127.0.0.1` | Server IP (CLI only) |
 
-## CLI REPL
+## CLI
 
-Interactive command-line client connecting to the server via REST API:
+Non-interactive by default (reads stdin). Use `--repl` for interactive mode.
 
+```bash
+# Pipe-friendly (default)
+echo "Alice knows Bob" | ./graph-rest-cli.py
+
+# Positional commands
+./graph-rest-cli.py "Alice knows Bob" "g"
+
+# Load files + commands
+./graph-rest-cli.py -l examples/social-network.csv -l extra.ttl "g"
+
+# Interactive REPL
+./graph-rest-cli.py --repl
 ```
-graph@127.0.0.1:7849> Alice knows Bob
-Added: Alice —knows→ Bob
-graph@127.0.0.1:7849> l
-Nodes (2):  Alice, Bob
-Edges (1):  Alice —knows→ Bob
-graph@127.0.0.1:7849> L data.csv
-Loaded 15 edges, 8 nodes from data.csv (csv)
-```
+
+**Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--repl`
 
 Commands: `add/a`, `del/d/rm`, `list/ls/l`, `graph/g`, `Load/L`, `help/?/h`, `quit/q`
 
@@ -99,7 +117,7 @@ Each converter outputs an intermediate format (plain/`--csv`/`--jsonl`) and work
 # Server unit tests (20 tests)
 pytest tests/test_api.py tests/test_ws.py -v -p no:playwright
 
-# CLI unit tests (6 tests)
+# CLI unit tests (16 tests)
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
 
 # E2E tests (Docker)
@@ -116,6 +134,7 @@ static/deps/               # vis-network local fallback
 tests/                     # Unit tests (pytest)
 e2e/                       # E2E tests (Docker + Selenium)
 manage                     # Docker orchestration script
+examples/                  # Example graph files (.csv, .dot, .ttl, .mermaid)
 scripts/converters/        # Format converter scripts
 ├── csv2graph/             #   CSV → graph
 ├── ttl2graph/             #   Turtle/N3 → graph
