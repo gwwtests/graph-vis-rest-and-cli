@@ -1,0 +1,1 @@
+{"nodes": [{"id": "New York", "label": "New York"}, {"id": "San Francisco", "label": "San Francisco"}, {"id": "Los Angeles", "label": "Los Angeles"}], "edges": [{"id": "e1", "from": "New York", "to": "San Francisco", "label": "flight"}, {"id": "e2", "from": "San Francisco", "to": "Los Angeles", "label": "drive"}]}

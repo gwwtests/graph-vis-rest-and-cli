@@ -1,0 +1,1 @@
+{"nodes": [{"id": "say \"hello\"", "label": "say \"hello\""}, {"id": "path\\to\\file", "label": "path\\to\\file"}, {"id": "normal", "label": "normal"}], "edges": [{"id": "e1", "from": "say \"hello\"", "to": "normal", "label": "greets"}, {"id": "e2", "from": "path\\to\\file", "to": "normal", "label": "links to"}]}
