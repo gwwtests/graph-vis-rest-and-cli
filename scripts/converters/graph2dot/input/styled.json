@@ -1,0 +1,1 @@
+{"nodes": [{"id": "A", "label": "Node A", "color": "#ff0000", "shape": "box", "borderWidth": 3, "font": {"size": 20}}, {"id": "B", "label": "Node B", "color": "#00ff00", "shadow": true}], "edges": [{"id": "e1", "from": "A", "to": "B", "label": "styled edge", "color": {"color": "#0000ff"}, "width": 3, "dashes": true}]}
