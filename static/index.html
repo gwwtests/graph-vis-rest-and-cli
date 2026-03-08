@@ -476,7 +476,11 @@
 
             ws.onmessage = (evt) => {
                 const msg = JSON.parse(evt.data);
-                handleWsEvent(msg);
+                if (msg.command) {
+                    handleWsCommand(msg);
+                } else {
+                    handleWsEvent(msg);
+                }
             };
         }
 
@@ -558,6 +562,148 @@
         const network = new vis.Network(container, data, options);
 
         const highlightMgr = new HighlightManager(nodes, edges);
+
+        // ---------------------------------------------------------------
+        // WS command handler (server → browser → server)
+        // ---------------------------------------------------------------
+        async function handleWsCommand(msg) {
+            const {command, request_id, params} = msg;
+            let result = {};
+            try {
+                switch (command) {
+                    case 'capture-screenshot':
+                        result = await captureScreenshot(params || {});
+                        break;
+                    case 'get-dom':
+                        result = getDomInfo();
+                        break;
+                    case 'set-ui':
+                        result = setUiState(params || {});
+                        break;
+                    default:
+                        result = {error: 'Unknown command: ' + command};
+                }
+            } catch (e) {
+                result = {error: e.message};
+            }
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({response_to: request_id, data: result}));
+            }
+        }
+
+        async function captureScreenshot(params) {
+            const {padding = 0.1, fit = true, format = 'png', quality = 0.92,
+                   width, height, hide_ui = true, background = 'white'} = params;
+
+            const inputContainer = document.getElementById('input-container');
+            const modeToggle = document.getElementById('mode-toggle');
+            const wsStatusEl = document.getElementById('ws-status');
+
+            // Save and hide UI
+            const savedDisplay = {};
+            if (hide_ui) {
+                for (const el of [inputContainer, modeToggle, wsStatusEl]) {
+                    if (el) {
+                        savedDisplay[el.id] = el.style.display;
+                        el.style.display = 'none';
+                    }
+                }
+            }
+
+            // Save original canvas size
+            const graphEl = document.getElementById('graph');
+            const savedWidth = graphEl.style.width;
+            const savedHeight = graphEl.style.height;
+
+            // Resize if requested
+            if (width) graphEl.style.width = width + 'px';
+            if (height) graphEl.style.height = height + 'px';
+            if (width || height) network.redraw();
+
+            // Fit to content with padding
+            if (fit) {
+                const allNodeIds = nodes.getIds();
+                if (allNodeIds.length > 0) {
+                    network.fit({
+                        nodes: allNodeIds,
+                        animation: false,
+                        minZoomLevel: 0.1,
+                        maxZoomLevel: 5,
+                    });
+                    // Apply padding by zooming out slightly
+                    if (padding > 0) {
+                        const currentScale = network.getScale();
+                        network.moveTo({scale: currentScale * (1 - padding), animation: false});
+                    }
+                }
+            }
+
+            // Wait for render to complete
+            await new Promise(r => setTimeout(r, 150));
+
+            // Capture canvas with background
+            const canvas = document.querySelector('#graph canvas');
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.fillStyle = background;
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.drawImage(canvas, 0, 0);
+
+            const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+            const image = tempCanvas.toDataURL(mimeType, quality);
+
+            // Restore canvas size
+            if (width || height) {
+                graphEl.style.width = savedWidth;
+                graphEl.style.height = savedHeight;
+                network.redraw();
+            }
+
+            // Restore UI
+            if (hide_ui) {
+                for (const el of [inputContainer, modeToggle, wsStatusEl]) {
+                    if (el) {
+                        el.style.display = savedDisplay[el.id] || '';
+                    }
+                }
+            }
+
+            return {image};
+        }
+
+        function getDomInfo() {
+            const positions = network.getPositions();
+            const scale = network.getScale();
+            const viewPosition = network.getViewPosition();
+            const canvasEl = document.querySelector('#graph canvas');
+
+            const nodeList = nodes.get().map(n => ({
+                ...n,
+                x: positions[n.id] ? positions[n.id].x : null,
+                y: positions[n.id] ? positions[n.id].y : null,
+            }));
+
+            return {
+                viewport: {x: viewPosition.x, y: viewPosition.y},
+                nodes: nodeList,
+                edges: edges.get(),
+                canvas: {width: canvasEl ? canvasEl.width : 0, height: canvasEl ? canvasEl.height : 0},
+                scale: scale,
+            };
+        }
+
+        function setUiState(params) {
+            const inputContainer = document.getElementById('input-container');
+            const modeToggle = document.getElementById('mode-toggle');
+
+            if (params.input_visible !== undefined) {
+                inputContainer.style.display = params.input_visible ? 'flex' : 'none';
+                modeToggle.style.display = params.input_visible ? '' : 'none';
+            }
+            return {ok: true, input_visible: inputContainer.style.display !== 'none'};
+        }
 
         // ---------------------------------------------------------------
         // Highlight mode dropdown

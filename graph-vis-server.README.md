@@ -95,6 +95,44 @@ curl -X POST http://localhost:7849/api/add-triplet \
   -d '{"subject": "Alice", "predicate": "knows", "object": "Bob"}'
 ```
 
+### `GET /api/screenshot`
+
+Captures the graph visualization as an image. Requires a browser client connected via WebSocket.
+
+```bash
+# Default PNG
+curl http://localhost:7849/api/screenshot > graph.png
+
+# JPEG with custom quality
+curl "http://localhost:7849/api/screenshot?format=jpeg&quality=0.5" > graph.jpg
+
+# Custom padding and no auto-fit
+curl "http://localhost:7849/api/screenshot?padding=0.2&fit=false" > graph.png
+```
+
+Query parameters: `padding` (0.1), `fit` (true), `format` (png/jpeg), `quality` (0.92), `width`, `height`, `hide_ui` (true), `background` (white).
+
+Returns 503 if no browser is connected.
+
+### `GET /api/dom`
+
+Returns graph layout introspection data (node positions, edges, viewport, canvas size, zoom scale).
+
+```bash
+curl http://localhost:7849/api/dom | jq .
+```
+
+### `POST /api/ui`
+
+Toggle browser UI elements.
+
+```bash
+# Hide input controls
+curl -X POST http://localhost:7849/api/ui \
+  -H 'Content-Type: application/json' \
+  -d '{"input_visible": false}'
+```
+
 ### WebSocket `/ws`
 
 Connect to receive real-time JSON broadcast events for all graph mutations:

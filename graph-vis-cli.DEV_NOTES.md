@@ -31,8 +31,9 @@ PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
 * `do_Load` (capital L) is intentional — avoids collision with `list/ls/l` shortcuts.
 * `help` as bare positional command handled before argparse via `sys.argv` check.
 
-## Planned Additions
+## Screenshot, DOM, UI Commands
 
-* `screenshot` / `ss` command — Trigger browser screenshot via `/api/screenshot`.
-* `dom` command — Get graph layout data via `/api/dom`.
-* `ui hide/show` command — Toggle browser UI via `/api/ui`.
+* `screenshot [file] [k=v]` (alias `ss`) — Downloads PNG/JPEG from browser via `/api/screenshot`. Supports key=value params (padding, format, quality, etc.).
+* `dom` — Fetches layout JSON from `/api/dom`. Prints with `json.dumps(indent=2)`.
+* `ui hide|show` (aliases: off/on) — Toggles browser input controls via `/api/ui`.
+* All three return "No browser connected (503)" if no browser WebSocket is active.

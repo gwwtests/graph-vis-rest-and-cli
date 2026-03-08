@@ -43,8 +43,9 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 
 
 class GraphClient:
@@ -106,6 +107,34 @@ class GraphClient:
 
     def clear_graph(self):
         return self._request("POST", "/api/clear")
+
+    def screenshot(self, filename=None, **params):
+        """Download screenshot from browser. Returns raw image bytes or None."""
+        query = '&'.join(f'{k}={v}' for k, v in params.items()
+                         if v is not None)
+        url = f"{self.base_url}/api/screenshot"
+        if query:
+            url += '?' + urllib.parse.quote(query, safe='=&')
+        req = urllib.request.Request(url)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = resp.read()
+                if filename:
+                    with open(filename, 'wb') as f:
+                        f.write(data)
+                return data
+        except urllib.error.HTTPError as e:
+            if e.code == 503:
+                return None
+            raise
+
+    def get_dom(self):
+        """Get graph layout introspection data."""
+        return self._request("GET", "/api/dom")
+
+    def set_ui(self, input_visible):
+        """Toggle browser UI visibility."""
+        return self._request("POST", "/api/ui", {"input_visible": input_visible})
 
 
 # Converter extension mapping
@@ -270,6 +299,45 @@ class GraphREPL(cmd.Cmd):
         if r and r.get("ok"):
             print("Graph cleared.")
 
+    def do_screenshot(self, arg):
+        """screenshot [filename] — Save graph screenshot (shortcut: ss)"""
+        filename = arg.strip() or "graph.png"
+        # Parse optional params from filename like: graph.png padding=0.2 format=jpeg
+        parts = filename.split()
+        actual_file = parts[0]
+        params = {}
+        for p in parts[1:]:
+            if '=' in p:
+                k, v = p.split('=', 1)
+                params[k] = v
+        data = self.client.screenshot(filename=actual_file, **params)
+        if data is None:
+            print("Error: No browser connected (503)")
+            return
+        print(f"Saved: {actual_file} ({len(data)} bytes)")
+
+    do_ss = do_screenshot
+
+    def do_dom(self, arg):
+        """dom — Show graph DOM/layout info"""
+        result = self.client.get_dom()
+        if result is None:
+            print("Error: No browser connected (503)")
+            return
+        print(json.dumps(result, indent=2))
+
+    def do_ui(self, arg):
+        """ui hide|show — Toggle input controls (shortcuts: ui off/on)"""
+        arg = arg.strip().lower()
+        if arg in ('hide', 'off'):
+            self.client.set_ui(False)
+            print("UI hidden.")
+        elif arg in ('show', 'on'):
+            self.client.set_ui(True)
+            print("UI shown.")
+        else:
+            print("Usage: ui hide|show  (aliases: off/on)")
+
     def do_Load(self, arg):
         """Load <filepath> — Load graph from file (shortcut: L)"""
         filepath = arg.strip()
@@ -425,6 +493,9 @@ class GraphREPL(cmd.Cmd):
   list / ls / l    [nodes|edges]         List graph contents
   graph / g                              Full graph summary
   clear                                  Clear graph to empty state
+  screenshot / ss  [filename] [k=v ...]  Save graph screenshot
+  dom                                    Show graph layout info
+  ui               hide|show             Toggle input controls
   Load / L         <filepath>            Load from file
   help / ? / h                           Show this help
   quit / exit / q                        Exit

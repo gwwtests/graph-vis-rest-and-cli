@@ -33,8 +33,13 @@ Tests use `fastapi.testclient.TestClient` (sync). `conftest.py` resets `store` a
 * `PYTHONPATH=.` required so pytest finds the symlink for imports.
 * The `Field(alias="from")` trick in `AddEdgeRequest` handles `from` being a Python keyword.
 
-## Planned Additions
+## WS Command-Response Protocol
 
-* `/api/screenshot` — WS command-response to capture browser canvas (see design doc).
-* `/api/dom` — WS command-response to get graph layout introspection.
-* `/api/ui` — WS command to toggle UI visibility.
+Server sends commands to the first connected browser via WebSocket and awaits responses. Used by `/api/screenshot`, `/api/dom`, and `/api/ui`. If no browser is connected, these endpoints return 503.
+
+Key implementation details:
+
+* `_pending_requests` dict maps `request_id` → `asyncio.Future`
+* `ws_command()` sends command, creates Future, awaits with timeout
+* `websocket_endpoint` parses incoming WS text for `response_to` field to resolve Futures
+* First connected WS client is used as the renderer

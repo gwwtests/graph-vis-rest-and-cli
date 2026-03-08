@@ -79,6 +79,9 @@ echo "g" | ./graph-vis-cli.py
 | `graph` | `g` | — | Full graph summary |
 | `Load` | `L` | `<filepath>` | Load graph from file |
 | `help` | `?`, `h` | — | Show command reference |
+| `screenshot` | `ss` | `[filename] [k=v ...]` | Save graph screenshot |
+| `dom` | — | — | Show graph layout info |
+| `ui` | — | `hide\|show` | Toggle browser input controls |
 | `quit` / `exit` | `q`, `Ctrl+D` | — | Exit REPL |
 
 **Shorthand:** 2 bare words = labelless edge (`Alice Bob` = `add Alice Bob`). 3 bare words = triplet (`Alice knows Bob` = `add Alice knows Bob`).

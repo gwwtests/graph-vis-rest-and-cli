@@ -246,3 +246,27 @@ def test_full_lifecycle(client):
     graph = client.get("/api/graph").json()
     assert len(graph["nodes"]) == 2
     assert len(graph["edges"]) == 1
+
+
+def test_screenshot_no_browser(client):
+    """Screenshot returns 503 when no browser is connected."""
+    resp = client.get("/api/screenshot")
+    assert resp.status_code == 503
+
+
+def test_screenshot_with_params_no_browser(client):
+    """Screenshot with custom params still returns 503 without browser."""
+    resp = client.get("/api/screenshot?format=jpeg&quality=0.5&padding=0.2")
+    assert resp.status_code == 503
+
+
+def test_dom_no_browser(client):
+    """DOM introspection returns 503 when no browser is connected."""
+    resp = client.get("/api/dom")
+    assert resp.status_code == 503
+
+
+def test_ui_no_browser(client):
+    """UI toggle returns 503 when no browser is connected."""
+    resp = client.post("/api/ui", json={"input_visible": False})
+    assert resp.status_code == 503

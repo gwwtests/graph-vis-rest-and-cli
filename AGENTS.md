@@ -53,6 +53,9 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | POST | `/api/remove-edge` | `{id}` | Remove an edge |
 | POST | `/api/add-triplet` | `{subject, predicate, object}` | Add subject→predicate→object |
 | POST | `/api/clear` | — | Clear graph to empty state |
+| GET | `/api/screenshot` | query params | Capture graph as PNG/JPEG (via browser) |
+| GET | `/api/dom` | — | Graph layout introspection (via browser) |
+| POST | `/api/ui` | `{input_visible}` | Toggle browser UI elements |
 
 ### WebSocket
 
@@ -65,6 +68,18 @@ Connect to `/ws`. Receives JSON broadcast events for all mutations:
 {"event": "remove-edge", "data": {"id": "A-knows-B"}}
 {"event": "add-triplet", "data": {"subject": "A", "predicate": "knows", "object": "B", "nodes": [...], "edges": [...]}}
 {"event": "clear", "data": {}}
+```
+
+Server can also send commands to the browser and receive responses:
+
+```json
+{"command": "capture-screenshot", "request_id": "...", "params": {...}}
+```
+
+Browser responds:
+
+```json
+{"response_to": "...", "data": {...}}
 ```
 
 ## Environment Variables
@@ -94,7 +109,7 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 
 **Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--repl`
 
-Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `clear`, `Load/L`, `help/?/h`, `quit/q`
+Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `clear`, `screenshot/ss`, `dom`, `ui hide/show`, `Load/L`, `help/?/h`, `quit/q`
 
 2 bare words = labelless edge, 3 bare words = add triplet.
 

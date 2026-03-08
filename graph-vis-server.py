@@ -9,12 +9,17 @@
 # ///
 """Graph Visualization Server with REST API + WebSocket for multi-client sync."""
 
+import asyncio
+import json
 import os
+import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+import base64
+
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -110,7 +115,6 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        import json
         text = json.dumps(message)
         for conn in list(self.active_connections):
             try:
@@ -120,6 +124,35 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+# ---------------------------------------------------------------------------
+# WS command-response (server → browser → server)
+# ---------------------------------------------------------------------------
+
+_pending_requests: dict[str, asyncio.Future] = {}
+
+
+async def ws_command(command: str, params: dict = None, timeout: float = 10.0) -> dict | None:
+    """Send a command to the first connected browser and await response."""
+    if not manager.active_connections:
+        return None
+    request_id = str(uuid.uuid4())
+    loop = asyncio.get_event_loop()
+    future = loop.create_future()
+    _pending_requests[request_id] = future
+    try:
+        conn = manager.active_connections[0]
+        await conn.send_json({
+            "command": command,
+            "request_id": request_id,
+            "params": params or {},
+        })
+        return await asyncio.wait_for(future, timeout=timeout)
+    except (asyncio.TimeoutError, Exception):
+        return None
+    finally:
+        _pending_requests.pop(request_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +187,10 @@ class AddTripletRequest(BaseModel):
     subject: str
     predicate: str
     object: str
+
+
+class UIRequest(BaseModel):
+    input_visible: bool | None = None
 
 
 class HighlightModeRequest(BaseModel):
@@ -269,6 +306,68 @@ async def add_triplet(req: AddTripletRequest):
 
 
 # ---------------------------------------------------------------------------
+# Introspection endpoints (screenshot, DOM, UI control)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/screenshot")
+async def screenshot(
+    padding: float = Query(0.1, description="Extra space around graph (fraction)"),
+    fit: bool = Query(True, description="Auto-fit to content before capture"),
+    format: str = Query("png", description="Image format: png or jpeg"),
+    quality: float = Query(0.92, description="JPEG quality (0-1)"),
+    width: int = Query(None, description="Override canvas width"),
+    height: int = Query(None, description="Override canvas height"),
+    hide_ui: bool = Query(True, description="Hide input box/buttons"),
+    background: str = Query("white", description="Background color"),
+):
+    """Capture the graph visualization as an image via browser."""
+    params = {
+        "padding": padding, "fit": fit, "format": format,
+        "quality": quality, "hide_ui": hide_ui, "background": background,
+    }
+    if width is not None:
+        params["width"] = width
+    if height is not None:
+        params["height"] = height
+
+    result = await ws_command("capture-screenshot", params, timeout=15.0)
+    if result is None:
+        return Response(status_code=503, content="No browser connected")
+
+    image_data = result.get("image", "")
+    if "," in image_data:
+        image_data = image_data.split(",", 1)[1]
+
+    media_type = "image/png" if format == "png" else "image/jpeg"
+    return Response(
+        content=base64.b64decode(image_data),
+        media_type=media_type,
+        headers={"Content-Disposition": f"inline; filename=graph.{format}"},
+    )
+
+
+@app.get("/api/dom")
+async def get_dom():
+    """Get graph layout introspection data from the browser."""
+    result = await ws_command("get-dom", timeout=5.0)
+    if result is None:
+        return Response(status_code=503, content="No browser connected")
+    return result
+
+
+@app.post("/api/ui")
+async def set_ui(req: UIRequest):
+    """Toggle browser UI elements."""
+    params = {}
+    if req.input_visible is not None:
+        params["input_visible"] = req.input_visible
+    result = await ws_command("set-ui", params, timeout=5.0)
+    if result is None:
+        return Response(status_code=503, content="No browser connected")
+    return {"ok": True, **result}
+
+
+# ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------
 
@@ -277,7 +376,17 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()  # keep-alive read loop
+            text = await websocket.receive_text()
+            # Check if this is a command response from browser
+            try:
+                msg = json.loads(text)
+                if "response_to" in msg:
+                    req_id = msg["response_to"]
+                    if req_id in _pending_requests and not _pending_requests[req_id].done():
+                        _pending_requests[req_id].set_result(msg.get("data", {}))
+                    continue
+            except (json.JSONDecodeError, KeyError):
+                pass
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
