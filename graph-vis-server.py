@@ -236,6 +236,34 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
-    port = int(os.environ.get("GRAPH_VIS_PORT", "7849"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+
+    parser = argparse.ArgumentParser(
+        description="Graph Visualization Server with REST API + WebSocket.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  %(prog)s                          Start on default port 7849
+  %(prog)s --port 9999              Start on custom port
+  %(prog)s --host 127.0.0.1        Bind to localhost only
+
+Environment variables:
+  GRAPH_VIS_PORT    Server port (default: 7849)""",
+    )
+    parser.add_argument("--host",
+                        default=os.environ.get("GRAPH_VIS_HOST", "0.0.0.0"),
+                        help="Bind address (env: GRAPH_VIS_HOST, default: 0.0.0.0)")
+    parser.add_argument("--port", type=int,
+                        default=int(os.environ.get("GRAPH_VIS_PORT", "7849")),
+                        help="Server port (env: GRAPH_VIS_PORT, default: 7849)")
+    # Support bare "help" as positional
+    parser.add_argument("command", nargs="?", default=None,
+                        help=argparse.SUPPRESS)
+
+    args = parser.parse_args()
+    if args.command == "help":
+        parser.parse_args(["--help"])
+    elif args.command is not None:
+        parser.error(f"unknown command: {args.command}")
+
+    uvicorn.run(app, host=args.host, port=args.port)

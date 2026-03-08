@@ -1,4 +1,4 @@
-# server.py
+# graph-vis-server.py
 
 Graph visualization server with REST API and WebSocket for real-time multi-client sync.
 
@@ -10,16 +10,24 @@ Serves a web-based graph builder UI (adapted from tripleter v5) backed by an in-
 
 ```bash
 # Direct execution (requires uv)
-./server.py
+./graph-vis-server.py
 
 # Or with python
-python server.py
+python graph-vis-server.py
 
 # Or with uv run explicitly
-uv run server.py
+uv run graph-vis-server.py
 
-# Custom port
-GRAPH_VIS_PORT=9999 ./server.py
+# Custom host/port via flags
+./graph-vis-server.py --host 0.0.0.0 --port 9999
+
+# Custom port via env var
+GRAPH_VIS_PORT=9999 ./graph-vis-server.py
+
+# Show help (all three forms work)
+./graph-vis-server.py --help
+./graph-vis-server.py -h
+./graph-vis-server.py help
 ```
 
 Then open `http://localhost:7849` (or your custom port).
@@ -29,6 +37,7 @@ Then open `http://localhost:7849` (or your custom port).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GRAPH_VIS_PORT` | `7849` | HTTP server port |
+| `GRAPH_VIS_HOST` | `0.0.0.0` | Server bind address |
 
 ## API Endpoints
 

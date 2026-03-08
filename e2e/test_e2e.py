@@ -19,7 +19,7 @@ BASE_URL = "http://127.0.0.1:7849"
 def _run_server():
     """Start the FastAPI server in a subprocess."""
     import uvicorn
-    from server import app
+    from graph_vis_server import app
     uvicorn.run(app, host="0.0.0.0", port=7849, log_level="warning")
 
 

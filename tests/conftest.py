@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from server import app, store, manager
+from graph_vis_server import app, store, manager
 
 
 @pytest.fixture(autouse=True)

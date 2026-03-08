@@ -120,6 +120,8 @@ def main():
     fmt = parser.add_mutually_exclusive_group()
     fmt.add_argument("--csv", action="store_true", help="Output CSV format")
     fmt.add_argument("--jsonl", action="store_true", help="Output JSONL format")
+    if len(sys.argv) > 1 and sys.argv[1] == "help":
+        parser.parse_args(["--help"])
     args = parser.parse_args()
 
     if args.csv:

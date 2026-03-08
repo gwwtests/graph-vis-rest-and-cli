@@ -14,7 +14,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt selenium
 
 # Copy application code
-COPY server.py .
+COPY graph-vis-server.py .
 COPY static/ static/
 COPY e2e/test_e2e.py e2e/
 

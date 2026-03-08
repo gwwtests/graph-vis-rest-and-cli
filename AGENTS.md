@@ -7,7 +7,7 @@ A graph visualization web app with a Python FastAPI backend. The frontend is ada
 ## Architecture
 
 ```
-Browser (vis-network)  ←→  FastAPI server (server.py)  ←→  graph-rest-cli.py
+Browser (vis-network)  ←→  FastAPI server (graph-vis-server.py)  ←→  graph-rest-cli.py
    ├── REST API: mutation requests     ├── GraphStore (in-memory)     ├── REPL commands
    ├── WebSocket: real-time sync       ├── ConnectionManager          ├── Load from files
    └── Static files served from /      └── Static mount (/static)    └── Format converters
@@ -17,9 +17,9 @@ Browser (vis-network)  ←→  FastAPI server (server.py)  ←→  graph-rest-cl
 
 ```bash
 # Run server (auto-installs deps via uv)
-./server.py
-# or: python server.py
-# or: GRAPH_VIS_PORT=9999 ./server.py
+./graph-vis-server.py
+# or: python graph-vis-server.py
+# or: GRAPH_VIS_PORT=9999 ./graph-vis-server.py
 
 # Open browser
 xdg-open http://localhost:7849
@@ -115,7 +115,7 @@ Each converter outputs an intermediate format (plain/`--csv`/`--jsonl`) and work
 
 ```bash
 # Server unit tests (20 tests)
-pytest tests/test_api.py tests/test_ws.py -v -p no:playwright
+PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py -v -p no:playwright
 
 # CLI unit tests (16 tests)
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
@@ -127,7 +127,7 @@ PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
 ## Project Structure
 
 ```
-server.py                  # FastAPI server (uv run shebang)
+graph-vis-server.py                  # FastAPI server (uv run shebang)
 graph-rest-cli.py          # REPL CLI client (stdlib-only)
 static/index.html          # Frontend UI
 static/deps/               # vis-network local fallback

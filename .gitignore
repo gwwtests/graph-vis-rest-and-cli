@@ -31,6 +31,7 @@ cache/
 
 # Symlinks for Python imports
 graph_rest_cli.py
+graph_vis_server.py
 
 # OS
 .DS_Store

@@ -224,6 +224,8 @@ def main():
     )
     parser.set_defaults(fmt="plain")
 
+    if len(sys.argv) > 1 and sys.argv[1] == "help":
+        parser.parse_args(["--help"])
     args = parser.parse_args()
 
     if args.file:

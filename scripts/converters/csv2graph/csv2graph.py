@@ -141,6 +141,8 @@ def main():
                         help="Output in CSV format")
     parser.add_argument("--jsonl", action="store_true",
                         help="Output in JSONL format")
+    if len(sys.argv) > 1 and sys.argv[1] == "help":
+        parser.parse_args(["--help"])
     args = parser.parse_args()
 
     fmt = "plain"
