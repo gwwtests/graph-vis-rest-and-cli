@@ -3,7 +3,8 @@
 import json
 import os
 from unittest.mock import patch
-from graph_vis_cli import GraphClient, GraphREPL, CONVERTER_MAP, parse_args, execute_command
+from graph_vis_cli import (GraphClient, GraphREPL, CONVERTER_MAP, parse_args,
+                           execute_command, MultilineProcessor, execute_commands)
 
 
 def test_parse_args_defaults():
@@ -161,3 +162,108 @@ def test_load_jsonl_with_extras(tmp_path, capsys):
     # Verify extras passed through
     assert any(kw.get("color") == "red" for _, kw in add_node_calls)
     assert any(kw.get("width") == 3 for _, kw in add_edge_calls)
+
+
+def test_multiline_plain_block():
+    """Plain +++ block executes each line as a command."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    proc = MultilineProcessor(repl)
+
+    with patch.object(c, "add_triplet", return_value={"ok": True}):
+        assert proc.feed("+++") is True  # entered block
+        assert proc.feed("Alice knows Bob") is True  # buffered
+        assert proc.feed("Bob likes Charlie") is True  # buffered
+        assert proc.feed("+++") is True  # closed + executed
+        c.add_triplet.assert_any_call("Alice", "knows", "Bob")
+        c.add_triplet.assert_any_call("Bob", "likes", "Charlie")
+
+
+def test_multiline_jsonl_block():
+    """+++jsonl block feeds content through JSONL processor."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    proc = MultilineProcessor(repl)
+
+    with patch.object(c, "add_node", return_value={"ok": True}):
+        proc.feed("+++jsonl")
+        proc.feed('{"type":"node","id":"X","label":"X","color":"red"}')
+        proc.feed("+++")
+        c.add_node.assert_called_once_with("X", "X", color="red")
+
+
+def test_multiline_not_in_block():
+    """Lines outside block return False (not consumed)."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    proc = MultilineProcessor(repl)
+    assert proc.feed("Alice knows Bob") is False
+    assert proc.feed("g") is False
+
+
+def test_multiline_closes_block():
+    """Second +++ closes the block."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    proc = MultilineProcessor(repl)
+
+    with patch.object(c, "add_triplet", return_value={"ok": True}):
+        proc.feed("+++")
+        assert proc.in_block is True
+        proc.feed("A B C")
+        proc.feed("+++")
+        assert proc.in_block is False
+
+
+def test_multiline_csv_block():
+    """+++csv block feeds content through csv converter."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    proc = MultilineProcessor(repl)
+
+    with patch.object(c, "add_triplet", return_value={"ok": True}):
+        proc.feed("+++csv")
+        proc.feed("source,target,relationship")
+        proc.feed("Alice,Bob,knows")
+        proc.feed("+++")
+        c.add_triplet.assert_called_once_with("Alice", "knows", "Bob")
+
+
+def test_execute_commands_with_block():
+    """execute_commands handles multiline blocks in a stream."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    lines = [
+        "+++",
+        "X Y Z",
+        "+++",
+    ]
+    with patch.object(c, "add_triplet", return_value={"ok": True}):
+        execute_commands(repl, lines)
+        c.add_triplet.assert_called_once_with("X", "Y", "Z")
+
+
+def test_execute_commands_mixed():
+    """execute_commands handles mix of regular and block lines."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    lines = [
+        "A B C",
+        "+++",
+        "D E F",
+        "+++",
+        "g",
+    ]
+    with patch.object(c, "add_triplet", return_value={"ok": True}):
+        with patch.object(repl, "do_graph"):
+            execute_commands(repl, lines)
+            assert c.add_triplet.call_count == 2  # A B C + D E F
+
+
+def test_multiline_invalid_format():
+    """Invalid format after +++ is not consumed."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    proc = MultilineProcessor(repl)
+    assert proc.feed("+++invalidformat") is False
+    assert proc.in_block is False

@@ -126,6 +126,19 @@ class GraphREPL(cmd.Cmd):
         super().__init__()
         self.client = client
         self.prompt = f"graph@{client.base_url.split('//')[1]}> "
+        self._multiline = MultilineProcessor(self)
+
+    def onecmd(self, line):
+        if self._multiline.feed(line):
+            return False
+        return super().onecmd(line)
+
+    def postcmd(self, stop, line):
+        if self._multiline.in_block:
+            self.prompt = f"  {self._multiline.block_format or 'block'}> "
+        else:
+            self.prompt = f"graph@{self.client.base_url.split('//')[1]}> "
+        return stop
 
     def preloop(self):
         graph = self.client.get_graph()
@@ -437,6 +450,104 @@ Formats for Load: .csv .ttl .n3 .dot .gv .mermaid .mmd""")
         pass  # Don't repeat last command
 
 
+# Format aliases for multiline blocks
+MULTILINE_FORMAT_MAP = {
+    "csv": "csv",
+    "ttl": "ttl", "n3": "ttl",
+    "dot": "dot", "gv": "dot",
+    "mermaid": "mermaid", "mmd": "mermaid",
+    "jsonl": "jsonl",
+}
+
+
+class MultilineProcessor:
+    """Accumulates lines between +++ markers and dispatches as a block."""
+
+    def __init__(self, repl):
+        self.repl = repl
+        self.in_block = False
+        self.block_format = None  # None = plain (execute each line as command)
+        self.buffer = []
+
+    def feed(self, line):
+        """Process a line. Returns True if consumed (in block or block marker)."""
+        stripped = line.strip()
+
+        # Check for +++ open/close marker
+        if stripped == "+++" or (stripped.startswith("+++") and not self.in_block):
+            if self.in_block:
+                # Closing marker
+                self._flush()
+                self.in_block = False
+                self.block_format = None
+                self.buffer = []
+                return True
+            else:
+                # Opening marker — check for format suffix
+                fmt_suffix = stripped[3:].strip().lower()
+                if fmt_suffix and fmt_suffix not in MULTILINE_FORMAT_MAP:
+                    return False  # Not a valid block opener
+                self.in_block = True
+                self.block_format = MULTILINE_FORMAT_MAP.get(fmt_suffix)  # None for plain
+                self.buffer = []
+                return True
+
+        if self.in_block:
+            self.buffer.append(line)
+            return True
+
+        return False  # Not in block, not consumed
+
+    def _flush(self):
+        """Process accumulated block content."""
+        if not self.buffer:
+            return
+
+        if self.block_format is None:
+            # Plain mode: execute each line as a command
+            for line in self.buffer:
+                execute_command(self.repl, line)
+        elif self.block_format == "jsonl":
+            self._flush_jsonl()
+        else:
+            self._flush_converter()
+
+    def _flush_jsonl(self):
+        """Process JSONL block content directly."""
+        text = "\n".join(self.buffer)
+        self.repl._load_jsonl_text(text)
+
+    def _flush_converter(self):
+        """Run block content through a converter subprocess."""
+        fmt = self.block_format
+        converter_name = {
+            "csv": "csv2graph", "ttl": "ttl2graph",
+            "dot": "dot2graph", "mermaid": "mermaid2graph",
+        }[fmt]
+        script_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "scripts", "converters", converter_name,
+            f"{converter_name}.py",
+        )
+        if not os.path.isfile(script_dir):
+            print(f"Converter not found: {script_dir}")
+            return
+        text = "\n".join(self.buffer) + "\n"
+        try:
+            result = subprocess.run(
+                [sys.executable, script_dir],
+                input=text, capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                print(f"Converter error: {result.stderr}")
+                return
+            ext = {"csv": ".csv", "ttl": ".ttl", "dot": ".dot",
+                   "mermaid": ".mermaid"}[fmt]
+            self.repl._load_intermediate(result.stdout, f"<block:{fmt}>", ext)
+        except subprocess.TimeoutExpired:
+            print("Converter timed out (30s)")
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="CLI for the graph visualization server. "
@@ -492,6 +603,16 @@ def execute_command(repl, line):
     repl.onecmd(line)
 
 
+def execute_commands(repl, lines):
+    """Execute a sequence of command lines, handling multiline blocks."""
+    proc = MultilineProcessor(repl)
+    for line in lines:
+        if not proc.feed(line.rstrip("\n") if isinstance(line, str) else line):
+            execute_command(repl, line)
+    if proc.in_block:
+        print("Warning: unterminated +++ block")
+
+
 def load_files(repl, files):
     """Load graph files via the Load command."""
     for filepath in files:
@@ -515,21 +636,14 @@ def main():
 
     # Step 2: Execute commands from chosen input mode
     if args.commands:
-        # Positional command args
-        for cmd_line in args.commands:
-            execute_command(repl, cmd_line)
+        execute_commands(repl, args.commands)
     elif args.input:
-        # Read from file
         with open(args.input) as f:
-            for line in f:
-                execute_command(repl, line)
+            execute_commands(repl, f)
     elif args.stdin or (not args.commands and not args.repl):
-        # Read from stdin (explicit --stdin or default when no args)
         if not sys.stdin.isatty() or args.stdin:
-            for line in sys.stdin:
-                execute_command(repl, line)
+            execute_commands(repl, sys.stdin)
         elif not args.repl:
-            # TTY with no args and no --repl — show help hint and enter REPL
             args.repl = True
 
     # Step 3: Enter REPL if requested
