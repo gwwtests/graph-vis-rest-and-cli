@@ -23,6 +23,25 @@ Legend: green = foundational, yellow = exploration, blue = interactive, purple =
 
 ---
 
+## 0. SVG Vector Screenshot Export
+
+**Priority:** Medium (exploration) | **Dependencies:** Screenshot endpoint (once implemented)
+
+vis-network renders to `<canvas>`, which is raster-only. SVG export requires a different approach:
+
+### Options to investigate
+
+* **vis-network `network.canvas.frame.canvas` to SVG:** No native support. Would need to reconstruct the graph as SVG from node/edge position data returned by `getPositions()` + `getBoundingBox()`. Essentially a server-side SVG renderer using introspection data.
+* **`canvas2svg` library:** Drop-in replacement for CanvasRenderingContext2D that records to SVG. Would require hooking into vis-network's render pipeline — fragile, may break on updates.
+* **D3.js parallel renderer:** Maintain a second SVG-based renderer alongside vis-network. High effort, but native vector output.
+* **Graphviz DOT export + render:** Export graph as DOT, render with Graphviz to SVG server-side. Layout won't match browser positions but produces clean vector output.
+
+### Recommended approach
+
+Hybrid: use `getPositions()` to get exact node coordinates from vis-network, then generate SVG server-side using those positions. This preserves the interactive layout while producing clean vector output. Could be a new `format=svg` parameter on `/api/screenshot`.
+
+---
+
 ## 1. CLI Subscribe Mode
 
 **Priority:** High | **Dependencies:** None (foundational)
