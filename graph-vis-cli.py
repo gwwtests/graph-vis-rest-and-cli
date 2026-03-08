@@ -21,7 +21,8 @@ Environment
 
 Commands
 --------
-    add / a          <subj> <pred> <obj>   Add triplet (default for 3 bare words)
+    add / a / +      <from> <to>           Add labelless edge (2 bare words)
+    add / a / +      <subj> <pred> <obj>   Add triplet (3 bare words)
     add-node / an    <id>                  Add single node
     add-edge / ae    <from> <pred> <to>    Add edge
     del / d / rm     <id>                  Delete node (cascade edges)
@@ -29,7 +30,8 @@ Commands
     list / ls / l    [nodes|edges]         List graph contents
     graph / g                              Full graph summary
     clear                                  Clear graph to empty state
-    Load / L         <filepath>            Load graph from file
+    Load / L         <filepath>            Load graph from file (.csv .jsonl etc.)
+    +++[format]      ...  +++              Multiline block (plain/csv/jsonl/ttl/dot/mermaid)
     help / ? / h                           Show command reference
     quit / exit / q                        Exit REPL
 """
@@ -429,7 +431,14 @@ class GraphREPL(cmd.Cmd):
 
 Shorthand: 2 bare words = add labelless edge (e.g. "Alice Bob")
            3 bare words = add triplet (e.g. "Alice knows Bob")
-Formats for Load: .csv .ttl .n3 .dot .gv .mermaid .mmd""")
+Formats for Load: .csv .ttl .n3 .dot .gv .mermaid .mmd .jsonl
+
+Multiline blocks:
+  +++              Start plain block (each line is a command)
+  +++csv           Start CSV block
+  +++jsonl         Start JSONL block (with styling support)
+  +++ttl|dot|mermaid   Start format block
+  +++              End block""")
 
     do_h = do_help
 

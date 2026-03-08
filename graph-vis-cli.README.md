@@ -69,6 +69,7 @@ echo "g" | ./graph-vis-cli.py
 
 | Command | Shortcuts | Args | Description |
 |---------|-----------|------|-------------|
+| `add` | `a`, `+` | `<from> <to>` | Add labelless edge |
 | `add` | `a`, `+` | `<subj> <pred> <obj>` | Add triplet |
 | `add-node` | `an` | `<id>` | Add single node |
 | `add-edge` | `ae` | `<from> <pred> <to>` | Add edge |
@@ -80,7 +81,7 @@ echo "g" | ./graph-vis-cli.py
 | `help` | `?`, `h` | — | Show command reference |
 | `quit` / `exit` | `q`, `Ctrl+D` | — | Exit REPL |
 
-**Shorthand:** 3 bare words are treated as `add` — `Alice knows Bob` = `add Alice knows Bob`.
+**Shorthand:** 2 bare words = labelless edge (`Alice Bob` = `add Alice Bob`). 3 bare words = triplet (`Alice knows Bob` = `add Alice knows Bob`).
 
 **Comments:** Lines starting with `#` are skipped (useful in command files).
 
@@ -92,6 +93,63 @@ echo "g" | ./graph-vis-cli.py
 | `.ttl`, `.n3` | ttl2graph | rdflib (via uv) |
 | `.dot`, `.gv` | dot2graph | stdlib |
 | `.mermaid`, `.mmd` | mermaid2graph | stdlib |
+| `.jsonl` | jsonl2graph | stdlib |
+
+## Multiline Blocks
+
+Use `+++` markers to input multiple lines as a block:
+
+### Plain block (each line is a command)
+
+```
++++
+Alice knows Bob
+Bob likes Charlie
+Charlie trusts Alice
++++
+```
+
+### Format blocks (content parsed as that format)
+
+```
++++csv
+source,target,relationship
+Alice,Bob,knows
+Bob,Charlie,likes
++++
+```
+
+```
++++jsonl
+{"type":"node","id":"HQ","label":"HQ","color":"red","shape":"star"}
+{"type":"edge","from":"HQ","to":"Server","label":"manages","width":3}
++++
+```
+
+```
++++ttl
+@prefix : <http://example.org/> .
+:Alice :knows :Bob .
++++
+```
+
+Supported formats: `csv`, `ttl`/`n3`, `dot`/`gv`, `mermaid`/`mmd`, `jsonl`
+
+In REPL mode, the prompt changes to show you're inside a block.
+
+## JSONL Format
+
+The JSONL format supports vis-network styling properties. Each line is a JSON object:
+
+```jsonl
+{"type":"node","id":"A","label":"A","color":"#ff0000","shape":"diamond","font":{"size":18}}
+{"type":"edge","from":"A","to":"B","label":"knows","color":"#00ff00","width":3,"dashes":true}
+{"type":"triplet","subject":"A","predicate":"knows","object":"B"}
+```
+
+* `node`: required `id`. Optional `label` (defaults to id). All other fields pass through to vis-network.
+* `edge`: required `from`, `to`. Optional `label` (default ""), `id`. All other fields pass through.
+* `triplet`: required `subject`, `predicate`, `object`. Simple — no styling support.
 
 ## Examples
 
@@ -102,6 +160,8 @@ Ready-to-use example graphs in `examples/`:
 ./graph-vis-cli.py -l examples/family-tree.dot "l"
 ./graph-vis-cli.py -l examples/web-of-knowledge.ttl "g"
 ./graph-vis-cli.py -l examples/software-arch.mermaid "g"
+./graph-vis-cli.py -l examples/styled-graph.jsonl "g"
+./graph-vis-cli.py -i examples/multiline-demo.txt
 ```
 
 ## Testing

@@ -47,11 +47,12 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/graph` | — | Full graph `{nodes: [...], edges: [...]}` |
-| POST | `/api/add-node` | `{id, label}` | Add a node |
+| POST | `/api/add-node` | `{id, label, ...extras}` | Add a node (extras: vis-network styling) |
 | POST | `/api/remove-node` | `{id}` | Remove node + connected edges |
-| POST | `/api/add-edge` | `{from, to, label, id?}` | Add an edge |
+| POST | `/api/add-edge` | `{from, to, label?, id?, ...extras}` | Add an edge (label optional, extras: styling) |
 | POST | `/api/remove-edge` | `{id}` | Remove an edge |
 | POST | `/api/add-triplet` | `{subject, predicate, object}` | Add subject→predicate→object |
+| POST | `/api/clear` | — | Clear graph to empty state |
 
 ### WebSocket
 
@@ -63,6 +64,7 @@ Connect to `/ws`. Receives JSON broadcast events for all mutations:
 {"event": "add-edge", "data": {"id": "A-knows-B", "from": "A", "to": "B", "label": "knows"}}
 {"event": "remove-edge", "data": {"id": "A-knows-B"}}
 {"event": "add-triplet", "data": {"subject": "A", "predicate": "knows", "object": "B", "nodes": [...], "edges": [...]}}
+{"event": "clear", "data": {}}
 ```
 
 ## Environment Variables
@@ -92,9 +94,11 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 
 **Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--repl`
 
-Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `Load/L`, `help/?/h`, `quit/q`
+Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `clear`, `Load/L`, `help/?/h`, `quit/q`
 
-3 bare words default to add triplet — `Alice knows Bob` = `add Alice knows Bob`.
+2 bare words = labelless edge, 3 bare words = add triplet.
+
+Multiline blocks: `+++` (plain), `+++csv`, `+++jsonl`, `+++ttl`, `+++dot`, `+++mermaid`.
 
 See `graph-vis-cli.README.md` for full reference.
 
@@ -108,17 +112,21 @@ Load graphs from files via the `L` command or use converters standalone:
 | `.ttl`, `.n3` | `scripts/converters/ttl2graph/ttl2graph.py` | rdflib (via uv) |
 | `.dot`, `.gv` | `scripts/converters/dot2graph/dot2graph.py` | stdlib |
 | `.mermaid`, `.mmd` | `scripts/converters/mermaid2graph/mermaid2graph.py` | stdlib |
+| `.jsonl` | `scripts/converters/jsonl2graph/jsonl2graph.py` | stdlib |
 
 Each converter outputs an intermediate format (plain/`--csv`/`--jsonl`) and works as both a CLI tool and an importable library.
 
 ## Testing
 
 ```bash
-# Server unit tests (20 tests)
+# Server unit tests
 PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py -v -p no:playwright
 
-# CLI unit tests (16 tests)
+# CLI unit tests
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
+
+# JSONL converter tests
+PYTHONPATH=. pytest tests/test_jsonl2graph.py -v -p no:playwright
 
 # E2E tests (Docker)
 ./manage test
@@ -134,10 +142,11 @@ static/deps/               # vis-network local fallback
 tests/                     # Unit tests (pytest)
 e2e/                       # E2E tests (Docker + Selenium)
 manage                     # Docker orchestration script
-examples/                  # Example graph files (.csv, .dot, .ttl, .mermaid)
+examples/                  # Example graph files (.csv, .dot, .ttl, .mermaid, .jsonl)
 scripts/converters/        # Format converter scripts
 ├── csv2graph/             #   CSV → graph
 ├── ttl2graph/             #   Turtle/N3 → graph
 ├── dot2graph/             #   Graphviz DOT → graph
-└── mermaid2graph/         #   Mermaid → graph
+├── mermaid2graph/         #   Mermaid → graph
+└── jsonl2graph/           #   JSONL → graph (with styling)
 ```
