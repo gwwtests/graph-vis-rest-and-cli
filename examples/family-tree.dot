@@ -1,0 +1,11 @@
+digraph FamilyTree {
+    George -> Mary [label="married_to"];
+    George -> James [label="parent_of"];
+    George -> Sarah [label="parent_of"];
+    Mary -> James [label="parent_of"];
+    Mary -> Sarah [label="parent_of"];
+    James -> Lily [label="parent_of"];
+    James -> Anna [label="married_to"];
+    Sarah -> Tom [label="married_to"];
+    Sarah -> Max [label="parent_of"];
+}

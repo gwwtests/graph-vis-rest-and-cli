@@ -1,0 +1,9 @@
+graph LR
+    Browser -->|REST| Server
+    Browser -->|WebSocket| Server
+    Server -->|queries| Database
+    Server -->|publishes| MessageQueue
+    MessageQueue -->|consumes| Worker
+    Worker -->|writes| Database
+    Worker -->|notifies| NotificationService
+    NotificationService -->|sends| EmailGateway

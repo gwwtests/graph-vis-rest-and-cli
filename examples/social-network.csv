@@ -1,0 +1,9 @@
+source,target,relationship
+Alice,Bob,knows
+Bob,Charlie,works_with
+Charlie,Diana,married_to
+Alice,Diana,friends_with
+Bob,Eve,mentors
+Eve,Charlie,reports_to
+Diana,Frank,siblings
+Frank,Alice,neighbors

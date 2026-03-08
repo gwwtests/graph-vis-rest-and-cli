@@ -1,0 +1,10 @@
+@prefix ex: <http://example.org/> .
+
+ex:Python ex:influences ex:Julia .
+ex:Python ex:influences ex:Ruby .
+ex:C ex:influences ex:Python .
+ex:C ex:influences ex:Java .
+ex:Java ex:influences ex:Kotlin .
+ex:JavaScript ex:influences ex:TypeScript .
+ex:Lisp ex:influences ex:Python .
+ex:Lisp ex:influences ex:JavaScript .
