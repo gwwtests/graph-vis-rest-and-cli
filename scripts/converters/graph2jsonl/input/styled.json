@@ -1,0 +1,30 @@
+{
+  "nodes": [
+    {
+      "id": "Server",
+      "label": "API Server",
+      "color": {"background": "#4CAF50", "border": "#388E3C"},
+      "shape": "box",
+      "font": {"color": "white", "size": 16},
+      "borderWidth": 2
+    },
+    {
+      "id": "DB",
+      "label": "Database",
+      "color": {"background": "#2196F3", "border": "#1565C0"},
+      "shape": "database",
+      "font": {"color": "white", "size": 16}
+    }
+  ],
+  "edges": [
+    {
+      "id": "Server-queries-DB",
+      "from": "Server",
+      "to": "DB",
+      "label": "queries",
+      "color": {"color": "#2196F3"},
+      "width": 2,
+      "dashes": true
+    }
+  ]
+}

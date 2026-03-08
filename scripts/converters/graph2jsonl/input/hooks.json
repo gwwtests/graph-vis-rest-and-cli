@@ -1,0 +1,30 @@
+{
+  "nodes": [
+    {
+      "id": "Root",
+      "label": "Root",
+      "on_click": [
+        {"action": "toggle_node", "id": "Child1"},
+        {"action": "toggle_style", "id": "Root", "style": {"borderWidth": 4}}
+      ],
+      "on_doubleClick": [
+        {"action": "remove_node", "id": "Child1"}
+      ]
+    },
+    {
+      "id": "Child1",
+      "label": "Child",
+      "hidden": true,
+      "physics": false
+    }
+  ],
+  "edges": [
+    {
+      "id": "Root--Child1",
+      "from": "Root",
+      "to": "Child1",
+      "hidden": true,
+      "physics": false
+    }
+  ]
+}
