@@ -83,16 +83,16 @@ class GraphClient:
     def get_graph(self):
         return self._request("GET", "/api/graph")
 
-    def add_node(self, node_id, label=None):
-        return self._request("POST", "/api/add-node",
-                             {"id": node_id, "label": label or node_id})
+    def add_node(self, node_id, label=None, **extras):
+        data = {"id": node_id, "label": label or node_id, **extras}
+        return self._request("POST", "/api/add-node", data)
 
     def remove_node(self, node_id):
         return self._request("POST", "/api/remove-node", {"id": node_id})
 
-    def add_edge(self, frm, to, label):
-        return self._request("POST", "/api/add-edge",
-                             {"from": frm, "to": to, "label": label})
+    def add_edge(self, frm, to, label, **extras):
+        data = {"from": frm, "to": to, "label": label, **extras}
+        return self._request("POST", "/api/add-edge", data)
 
     def remove_edge(self, edge_id):
         return self._request("POST", "/api/remove-edge", {"id": edge_id})
@@ -115,6 +115,7 @@ CONVERTER_MAP = {
     ".gv": "dot2graph",
     ".mermaid": "mermaid2graph",
     ".mmd": "mermaid2graph",
+    ".jsonl": "jsonl2graph",
 }
 
 
@@ -265,6 +266,10 @@ class GraphREPL(cmd.Cmd):
             return
         _, ext = os.path.splitext(filepath)
         ext = ext.lower()
+        # JSONL: load directly to preserve styling extras
+        if ext == ".jsonl":
+            self._load_jsonl(filepath)
+            return
         converter_name = CONVERTER_MAP.get(ext)
         if not converter_name:
             print(f"Unsupported format: {ext}")
@@ -316,6 +321,70 @@ class GraphREPL(cmd.Cmd):
         fmt_name = ext.lstrip(".")
         print(f"Loaded {loaded_edges} edges, {len(loaded_nodes)} nodes "
               f"from {filepath} ({fmt_name})")
+
+    def _load_jsonl(self, filepath):
+        """Load JSONL file directly, preserving styling extras."""
+        loaded_nodes = 0
+        loaded_edges = 0
+        with open(filepath) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                obj = json.loads(line)
+                typ = obj.get("type")
+                if typ == "node":
+                    node_id = obj["id"]
+                    label = obj.get("label", node_id)
+                    extras = {k: v for k, v in obj.items()
+                              if k not in ("type", "id", "label")}
+                    self.client.add_node(node_id, label, **extras)
+                    loaded_nodes += 1
+                elif typ == "edge":
+                    frm, to = obj["from"], obj["to"]
+                    label = obj.get("label", "")
+                    extras = {k: v for k, v in obj.items()
+                              if k not in ("type", "from", "to", "label", "id")}
+                    if "id" in obj:
+                        extras["id"] = obj["id"]
+                    self.client.add_edge(frm, to, label, **extras)
+                    loaded_edges += 1
+                elif typ == "triplet":
+                    self.client.add_triplet(obj["subject"], obj["predicate"], obj["object"])
+                    loaded_edges += 1
+        print(f"Loaded {loaded_edges} edges, {loaded_nodes} nodes from {filepath} (jsonl)")
+
+    def _load_jsonl_text(self, text):
+        """Load JSONL from a text string (for multiline blocks)."""
+        loaded_nodes = 0
+        loaded_edges = 0
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            obj = json.loads(line)
+            typ = obj.get("type")
+            if typ == "node":
+                node_id = obj["id"]
+                label = obj.get("label", node_id)
+                extras = {k: v for k, v in obj.items()
+                          if k not in ("type", "id", "label")}
+                self.client.add_node(node_id, label, **extras)
+                loaded_nodes += 1
+            elif typ == "edge":
+                frm, to = obj["from"], obj["to"]
+                label = obj.get("label", "")
+                extras = {k: v for k, v in obj.items()
+                          if k not in ("type", "from", "to", "label", "id")}
+                if "id" in obj:
+                    extras["id"] = obj["id"]
+                self.client.add_edge(frm, to, label, **extras)
+                loaded_edges += 1
+            elif typ == "triplet":
+                self.client.add_triplet(obj["subject"], obj["predicate"], obj["object"])
+                loaded_edges += 1
+        if loaded_nodes or loaded_edges:
+            print(f"Loaded {loaded_edges} edges from multiline jsonl block")
 
     def do_quit(self, arg):
         """quit — Exit the REPL (shortcuts: exit, q)"""

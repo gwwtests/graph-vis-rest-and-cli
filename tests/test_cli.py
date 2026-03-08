@@ -1,8 +1,9 @@
 """Tests for graph-vis-cli GraphClient, REPL, and mode resolution."""
 
+import json
 import os
 from unittest.mock import patch
-from graph_vis_cli import GraphClient, GraphREPL, parse_args, execute_command
+from graph_vis_cli import GraphClient, GraphREPL, CONVERTER_MAP, parse_args, execute_command
 
 
 def test_parse_args_defaults():
@@ -135,3 +136,28 @@ def test_execute_command_calls_onecmd():
     with patch.object(repl, "onecmd") as mock:
         execute_command(repl, "  g  ")
         mock.assert_called_once_with("g")
+
+
+def test_converter_map_jsonl():
+    """JSONL extension is in CONVERTER_MAP."""
+    assert ".jsonl" in CONVERTER_MAP
+    assert CONVERTER_MAP[".jsonl"] == "jsonl2graph"
+
+
+def test_load_jsonl_with_extras(tmp_path, capsys):
+    """Loading JSONL passes styling extras to server."""
+    f = tmp_path / "test.jsonl"
+    f.write_text('\n'.join([
+        json.dumps({"type": "node", "id": "A", "label": "A", "color": "red"}),
+        json.dumps({"type": "edge", "from": "A", "to": "B", "label": "x", "width": 3}),
+    ]))
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    add_node_calls = []
+    add_edge_calls = []
+    with patch.object(c, "add_node", side_effect=lambda *a, **kw: (add_node_calls.append((a, kw)), {"ok": True})[1]):
+        with patch.object(c, "add_edge", side_effect=lambda *a, **kw: (add_edge_calls.append((a, kw)), {"ok": True})[1]):
+            repl.do_Load(str(f))
+    # Verify extras passed through
+    assert any(kw.get("color") == "red" for _, kw in add_node_calls)
+    assert any(kw.get("width") == 3 for _, kw in add_edge_calls)
