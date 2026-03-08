@@ -64,6 +64,17 @@ def test_ws_broadcast_on_add_triplet(client):
         assert msg["data"]["object"] == "Y"
 
 
+def test_ws_broadcast_on_clear(client):
+    client.post("/api/add-triplet", json={
+        "subject": "A", "predicate": "x", "object": "B",
+    })
+    with client.websocket_connect("/ws") as ws:
+        client.post("/api/clear")
+        msg = json.loads(ws.receive_text())
+        assert msg["event"] == "clear"
+        assert msg["data"] == {}
+
+
 def test_ws_multi_client_broadcast(client):
     with client.websocket_connect("/ws") as ws1:
         with client.websocket_connect("/ws") as ws2:
@@ -74,6 +85,15 @@ def test_ws_multi_client_broadcast(client):
             assert msg2["event"] == "add-node"
             assert msg1["data"]["id"] == "M"
             assert msg2["data"]["id"] == "M"
+
+
+def test_ws_broadcast_on_highlight_mode(client):
+    with client.websocket_connect("/ws") as ws:
+        client.post("/api/highlight-mode", json={"mode": "pulse"})
+        msg = json.loads(ws.receive_text())
+        assert msg["event"] == "highlight-mode"
+        assert msg["data"]["mode"] == "pulse"
+        assert msg["data"]["fadeDuration"] == 3000
 
 
 def test_ws_disconnect_handling(client):

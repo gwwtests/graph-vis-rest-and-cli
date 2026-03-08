@@ -120,10 +120,31 @@
             z-index: 100;
             title: "WebSocket status";
         }
+        #highlight-controls {
+            position: fixed;
+            left: 20px;
+            top: 50px;
+            z-index: 100;
+            font-size: 11px;
+        }
+        #highlight-mode-select {
+            font-size: 11px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            border: 1px solid #999;
+        }
     </style>
 </head>
 <body>
     <button id="mode-toggle">Multi</button>
+    <div id="highlight-controls">
+        <label>Highlight: <select id="highlight-mode-select">
+            <option value="none">none</option>
+            <option value="fade">fade</option>
+            <option value="pulse">pulse</option>
+            <option value="glow">glow</option>
+        </select></label>
+    </div>
     <div id="ws-status" title="WebSocket: disconnected"></div>
     <div id="input-container">
         <input type="text" id="relationship-input"
@@ -197,7 +218,227 @@
                     body: JSON.stringify({subject, predicate, object}),
                 });
             },
+            async getHighlightMode() {
+                const r = await fetch('/api/highlight-mode');
+                return r.json();
+            },
+            async setHighlightMode(settings) {
+                return fetch('/api/highlight-mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings),
+                });
+            },
         };
+
+        // ---------------------------------------------------------------
+        // Color utilities
+        // ---------------------------------------------------------------
+        function hexToRgb(hex) {
+            const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+            return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [0, 0, 0];
+        }
+
+        function rgbToHex(r, g, b) {
+            return '#' + [r, g, b].map(c => Math.round(c).toString(16).padStart(2, '0')).join('');
+        }
+
+        function lerpColor(hexA, hexB, t) {
+            const a = hexToRgb(hexA), b = hexToRgb(hexB);
+            return rgbToHex(
+                a[0] + (b[0] - a[0]) * t,
+                a[1] + (b[1] - a[1]) * t,
+                a[2] + (b[2] - a[2]) * t,
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // HighlightManager — animate new nodes/edges
+        // ---------------------------------------------------------------
+        class HighlightManager {
+            constructor(nodesDS, edgesDS) {
+                this.nodes = nodesDS;
+                this.edges = edgesDS;
+                this.activeNodes = new Map(); // id → {startTime}
+                this.activeEdges = new Map();
+                this.running = false;
+                this.settings = {
+                    mode: 'none',
+                    fadeDuration: 3000,
+                    highlightColor: '#FFD700',
+                    highlightEdgeColor: '#FF6B35',
+                };
+                // Default vis-network colors
+                this.defaultNodeColor = '#97C2FC';
+                this.defaultNodeBorder = '#2B7CE9';
+                this.defaultEdgeColor = '#848484';
+            }
+
+            registerNode(id) {
+                if (this.settings.mode === 'none') return;
+                this.activeNodes.set(id, {startTime: performance.now()});
+                this._startLoop();
+            }
+
+            registerEdge(id) {
+                if (this.settings.mode === 'none') return;
+                this.activeEdges.set(id, {startTime: performance.now()});
+                this._startLoop();
+            }
+
+            unregisterNode(id) {
+                if (this.activeNodes.delete(id)) {
+                    this._resetProps(id, 'node');
+                }
+            }
+
+            unregisterEdge(id) {
+                if (this.activeEdges.delete(id)) {
+                    this._resetProps(id, 'edge');
+                }
+            }
+
+            clearAll() {
+                // Reset all active items before clearing
+                for (const id of this.activeNodes.keys()) this._resetProps(id, 'node');
+                for (const id of this.activeEdges.keys()) this._resetProps(id, 'edge');
+                this.activeNodes.clear();
+                this.activeEdges.clear();
+            }
+
+            updateSettings(s) {
+                if (s.mode !== undefined) this.settings.mode = s.mode;
+                if (s.fadeDuration !== undefined) this.settings.fadeDuration = s.fadeDuration;
+                if (s.highlightColor !== undefined) this.settings.highlightColor = s.highlightColor;
+                if (s.highlightEdgeColor !== undefined) this.settings.highlightEdgeColor = s.highlightEdgeColor;
+            }
+
+            _startLoop() {
+                if (this.running) return;
+                this.running = true;
+                const loop = (now) => {
+                    this._tick(now);
+                    if (this.activeNodes.size > 0 || this.activeEdges.size > 0) {
+                        requestAnimationFrame(loop);
+                    } else {
+                        this.running = false;
+                    }
+                };
+                requestAnimationFrame(loop);
+            }
+
+            _computeIntensity(elapsed) {
+                const t = Math.min(elapsed / this.settings.fadeDuration, 1);
+                return Math.max(0, 1 - Math.log(1 + t * (Math.E - 1)));
+            }
+
+            _tick(now) {
+                const mode = this.settings.mode;
+                if (mode === 'none') return;
+
+                const nodeUpdates = [];
+                const edgeUpdates = [];
+                const expiredNodes = [];
+                const expiredEdges = [];
+
+                for (const [id, info] of this.activeNodes) {
+                    const elapsed = now - info.startTime;
+                    const intensity = this._computeIntensity(elapsed);
+                    if (intensity <= 0) {
+                        expiredNodes.push(id);
+                    } else {
+                        nodeUpdates.push({id, ...this._nodeProps(intensity, mode)});
+                    }
+                }
+
+                for (const [id, info] of this.activeEdges) {
+                    const elapsed = now - info.startTime;
+                    const intensity = this._computeIntensity(elapsed);
+                    if (intensity <= 0) {
+                        expiredEdges.push(id);
+                    } else {
+                        edgeUpdates.push({id, ...this._edgeProps(intensity, mode)});
+                    }
+                }
+
+                if (nodeUpdates.length) this.nodes.update(nodeUpdates);
+                if (edgeUpdates.length) this.edges.update(edgeUpdates);
+
+                for (const id of expiredNodes) {
+                    this.activeNodes.delete(id);
+                    this._resetProps(id, 'node');
+                }
+                for (const id of expiredEdges) {
+                    this.activeEdges.delete(id);
+                    this._resetProps(id, 'edge');
+                }
+            }
+
+            _nodeProps(intensity, mode) {
+                switch (mode) {
+                    case 'fade':
+                        return {
+                            color: {
+                                background: lerpColor(this.defaultNodeColor, this.settings.highlightColor, intensity),
+                                border: lerpColor(this.defaultNodeBorder, this.settings.highlightColor, intensity),
+                            },
+                        };
+                    case 'pulse': {
+                        const osc = Math.sin(performance.now() / 100) * intensity;
+                        const size = 30 + 15 * osc;
+                        const borderWidth = 1 + 3 * intensity;
+                        return {size, borderWidth};
+                    }
+                    case 'glow':
+                        return {
+                            shadow: {
+                                enabled: true,
+                                color: this.settings.highlightColor,
+                                size: 20 * intensity,
+                                x: 0, y: 0,
+                            },
+                        };
+                    default:
+                        return {};
+                }
+            }
+
+            _edgeProps(intensity, mode) {
+                switch (mode) {
+                    case 'fade':
+                        return {
+                            color: {color: lerpColor(this.defaultEdgeColor, this.settings.highlightEdgeColor, intensity)},
+                        };
+                    case 'pulse': {
+                        const osc = Math.sin(performance.now() / 100) * intensity;
+                        return {width: 1 + 3 * Math.abs(osc)};
+                    }
+                    case 'glow':
+                        return {
+                            shadow: {
+                                enabled: true,
+                                color: this.settings.highlightEdgeColor,
+                                size: 10 * intensity,
+                                x: 0, y: 0,
+                            },
+                        };
+                    default:
+                        return {};
+                }
+            }
+
+            _resetProps(id, type) {
+                try {
+                    if (type === 'node') {
+                        this.nodes.update({id, color: null, size: null, borderWidth: null, shadow: false});
+                    } else {
+                        this.edges.update({id, color: null, width: null, shadow: false});
+                    }
+                } catch (e) {
+                    // Item may have been removed already
+                }
+            }
+        }
 
         // ---------------------------------------------------------------
         // WebSocket client with auto-reconnect
@@ -244,20 +485,42 @@
             switch (event) {
                 case 'add-node':
                     if (!nodes.get(data.id)) nodes.add(data);
+                    highlightMgr.registerNode(data.id);
                     break;
                 case 'remove-node':
-                    if (data.connected_edges) edges.remove(data.connected_edges);
+                    highlightMgr.unregisterNode(data.id);
+                    if (data.connected_edges) {
+                        data.connected_edges.forEach(eid => highlightMgr.unregisterEdge(eid));
+                        edges.remove(data.connected_edges);
+                    }
                     nodes.remove(data.id);
                     break;
                 case 'add-edge':
                     if (!edges.get(data.id)) edges.add(data);
+                    highlightMgr.registerEdge(data.id);
                     break;
                 case 'remove-edge':
+                    highlightMgr.unregisterEdge(data.id);
                     edges.remove(data.id);
                     break;
                 case 'add-triplet':
-                    if (data.nodes) data.nodes.forEach(n => { if (!nodes.get(n.id)) nodes.add(n); });
-                    if (data.edge && !edges.get(data.edge.id)) edges.add(data.edge);
+                    if (data.nodes) data.nodes.forEach(n => {
+                        if (!nodes.get(n.id)) nodes.add(n);
+                        highlightMgr.registerNode(n.id);
+                    });
+                    if (data.edge && !edges.get(data.edge.id)) {
+                        edges.add(data.edge);
+                        highlightMgr.registerEdge(data.edge.id);
+                    }
+                    break;
+                case 'clear':
+                    highlightMgr.clearAll();
+                    nodes.clear();
+                    edges.clear();
+                    break;
+                case 'highlight-mode':
+                    highlightMgr.updateSettings(data);
+                    document.getElementById('highlight-mode-select').value = data.mode;
                     break;
             }
         }
@@ -293,6 +556,16 @@
             }
         };
         const network = new vis.Network(container, data, options);
+
+        const highlightMgr = new HighlightManager(nodes, edges);
+
+        // ---------------------------------------------------------------
+        // Highlight mode dropdown
+        // ---------------------------------------------------------------
+        const highlightSelect = document.getElementById('highlight-mode-select');
+        highlightSelect.addEventListener('change', () => {
+            api.setHighlightMode({mode: highlightSelect.value});
+        });
 
         // ---------------------------------------------------------------
         // Input mode handling
@@ -419,6 +692,13 @@
                 if (graph.edges) graph.edges.forEach(e => { if (!edges.get(e.id)) edges.add(e); });
             } catch (err) {
                 console.error('Failed to load initial graph:', err);
+            }
+            try {
+                const hs = await api.getHighlightMode();
+                highlightMgr.updateSettings(hs);
+                highlightSelect.value = hs.mode;
+            } catch (err) {
+                console.error('Failed to load highlight settings:', err);
             }
             connectWebSocket();
         }

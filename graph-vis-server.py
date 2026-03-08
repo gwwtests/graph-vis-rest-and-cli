@@ -16,7 +16,21 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+# ---------------------------------------------------------------------------
+# Highlight settings (in-memory, broadcast via WS)
+# ---------------------------------------------------------------------------
+
+VALID_HIGHLIGHT_MODES = ("none", "fade", "pulse", "glow")
+
+highlight_settings: dict = {
+    "mode": "none",
+    "fadeDuration": 3000,
+    "highlightColor": "#FFD700",
+    "highlightEdgeColor": "#FF6B35",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +150,20 @@ class AddTripletRequest(BaseModel):
     object: str
 
 
+class HighlightModeRequest(BaseModel):
+    mode: str | None = None
+    fadeDuration: int | None = None
+    highlightColor: str | None = None
+    highlightEdgeColor: str | None = None
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v):
+        if v is not None and v not in VALID_HIGHLIGHT_MODES:
+            raise ValueError(f"mode must be one of {VALID_HIGHLIGHT_MODES}")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -187,6 +215,33 @@ async def remove_edge(req: RemoveEdgeRequest):
     removed = store.remove_edge(req.id)
     await manager.broadcast({"event": "remove-edge", "data": {"id": req.id}})
     return {"ok": True, "removed": removed}
+
+
+@app.post("/api/clear")
+async def clear_graph():
+    store.nodes.clear()
+    store.edges.clear()
+    await manager.broadcast({"event": "clear", "data": {}})
+    return {"ok": True}
+
+
+@app.get("/api/highlight-mode")
+async def get_highlight_mode():
+    return highlight_settings
+
+
+@app.post("/api/highlight-mode")
+async def set_highlight_mode(req: HighlightModeRequest):
+    if req.mode is not None:
+        highlight_settings["mode"] = req.mode
+    if req.fadeDuration is not None:
+        highlight_settings["fadeDuration"] = req.fadeDuration
+    if req.highlightColor is not None:
+        highlight_settings["highlightColor"] = req.highlightColor
+    if req.highlightEdgeColor is not None:
+        highlight_settings["highlightEdgeColor"] = req.highlightEdgeColor
+    await manager.broadcast({"event": "highlight-mode", "data": dict(highlight_settings)})
+    return {"ok": True, **highlight_settings}
 
 
 @app.post("/api/add-triplet")

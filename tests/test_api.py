@@ -117,6 +117,64 @@ def test_add_triplet_existing_nodes(client):
     assert r.json()["nodes"][0]["id"] == "B"
 
 
+def test_clear_graph(client):
+    client.post("/api/add-triplet", json={
+        "subject": "A", "predicate": "knows", "object": "B",
+    })
+    client.post("/api/add-triplet", json={
+        "subject": "B", "predicate": "likes", "object": "C",
+    })
+    graph = client.get("/api/graph").json()
+    assert len(graph["nodes"]) == 3
+    assert len(graph["edges"]) == 2
+
+    r = client.post("/api/clear")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+    graph = client.get("/api/graph").json()
+    assert graph == {"nodes": [], "edges": []}
+
+
+def test_clear_empty_graph(client):
+    r = client.post("/api/clear")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+
+def test_get_highlight_mode_default(client):
+    r = client.get("/api/highlight-mode")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["mode"] == "none"
+    assert data["fadeDuration"] == 3000
+    assert data["highlightColor"] == "#FFD700"
+    assert data["highlightEdgeColor"] == "#FF6B35"
+
+
+def test_set_highlight_mode(client):
+    r = client.post("/api/highlight-mode", json={"mode": "fade"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert r.json()["mode"] == "fade"
+
+    r = client.get("/api/highlight-mode")
+    assert r.json()["mode"] == "fade"
+
+
+def test_set_highlight_mode_partial(client):
+    client.post("/api/highlight-mode", json={"mode": "glow"})
+    r = client.post("/api/highlight-mode", json={"fadeDuration": 5000})
+    data = r.json()
+    assert data["mode"] == "glow"
+    assert data["fadeDuration"] == 5000
+
+
+def test_set_highlight_mode_invalid(client):
+    r = client.post("/api/highlight-mode", json={"mode": "invalid"})
+    assert r.status_code == 422
+
+
 def test_full_lifecycle(client):
     # Build a small graph
     client.post("/api/add-triplet", json={
