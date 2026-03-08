@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""graph-rest-cli — CLI for the graph visualization server.
+"""graph-vis-cli — CLI for the graph visualization server.
 
 Connects to a graph-vis server via REST API. Non-interactive by default
 (reads from stdin for easy piping). Use --repl for interactive mode.
 
 Usage
 -----
-    echo "Alice knows Bob" | ./graph-rest-cli.py       # pipe commands (default)
-    ./graph-rest-cli.py "Alice knows Bob" "g"          # positional commands
-    ./graph-rest-cli.py -i commands.txt                # read from file
-    ./graph-rest-cli.py -l data.csv "g"                # load file, then command
-    ./graph-rest-cli.py -l data.csv --repl             # load file, then REPL
-    ./graph-rest-cli.py --repl                         # interactive REPL
-    ./graph-rest-cli.py help                           # show help
+    echo "Alice knows Bob" | ./graph-vis-cli.py       # pipe commands (default)
+    ./graph-vis-cli.py "Alice knows Bob" "g"          # positional commands
+    ./graph-vis-cli.py -i commands.txt                # read from file
+    ./graph-vis-cli.py -l data.csv "g"                # load file, then command
+    ./graph-vis-cli.py -l data.csv --repl             # load file, then REPL
+    ./graph-vis-cli.py --repl                         # interactive REPL
+    ./graph-vis-cli.py help                           # show help
 
 Environment
 -----------

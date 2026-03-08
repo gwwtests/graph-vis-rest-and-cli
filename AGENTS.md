@@ -7,7 +7,7 @@ A graph visualization web app with a Python FastAPI backend. The frontend is ada
 ## Architecture
 
 ```
-Browser (vis-network)  ←→  FastAPI server (graph-vis-server.py)  ←→  graph-rest-cli.py
+Browser (vis-network)  ←→  FastAPI server (graph-vis-server.py)  ←→  graph-vis-cli.py
    ├── REST API: mutation requests     ├── GraphStore (in-memory)     ├── REPL commands
    ├── WebSocket: real-time sync       ├── ConnectionManager          ├── Load from files
    └── Static files served from /      └── Static mount (/static)    └── Format converters
@@ -25,19 +25,19 @@ Browser (vis-network)  ←→  FastAPI server (graph-vis-server.py)  ←→  gra
 xdg-open http://localhost:7849
 
 # CLI: pipe commands (non-interactive default)
-echo "Alice knows Bob" | ./graph-rest-cli.py
+echo "Alice knows Bob" | ./graph-vis-cli.py
 
 # CLI: positional commands
-./graph-rest-cli.py "Alice knows Bob" "g"
+./graph-vis-cli.py "Alice knows Bob" "g"
 
 # CLI: load a file and show graph
-./graph-rest-cli.py -l examples/social-network.csv "g"
+./graph-vis-cli.py -l examples/social-network.csv "g"
 
 # CLI: interactive REPL
-./graph-rest-cli.py --repl
+./graph-vis-cli.py --repl
 
 # CLI: env vars for connection
-GRAPH_VIS_HOST=10.0.0.5 ./graph-rest-cli.py -l data.csv "g"
+GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 ```
 
 ## API Reference
@@ -78,16 +78,16 @@ Non-interactive by default (reads stdin). Use `--repl` for interactive mode.
 
 ```bash
 # Pipe-friendly (default)
-echo "Alice knows Bob" | ./graph-rest-cli.py
+echo "Alice knows Bob" | ./graph-vis-cli.py
 
 # Positional commands
-./graph-rest-cli.py "Alice knows Bob" "g"
+./graph-vis-cli.py "Alice knows Bob" "g"
 
 # Load files + commands
-./graph-rest-cli.py -l examples/social-network.csv -l extra.ttl "g"
+./graph-vis-cli.py -l examples/social-network.csv -l extra.ttl "g"
 
 # Interactive REPL
-./graph-rest-cli.py --repl
+./graph-vis-cli.py --repl
 ```
 
 **Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--repl`
@@ -96,7 +96,7 @@ Commands: `add/a`, `del/d/rm`, `list/ls/l`, `graph/g`, `Load/L`, `help/?/h`, `qu
 
 3 bare words default to add triplet — `Alice knows Bob` = `add Alice knows Bob`.
 
-See `graph-rest-cli.README.md` for full reference.
+See `graph-vis-cli.README.md` for full reference.
 
 ## Format Converters
 
@@ -128,7 +128,7 @@ PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
 
 ```
 graph-vis-server.py                  # FastAPI server (uv run shebang)
-graph-rest-cli.py          # REPL CLI client (stdlib-only)
+graph-vis-cli.py          # REPL CLI client (stdlib-only)
 static/index.html          # Frontend UI
 static/deps/               # vis-network local fallback
 tests/                     # Unit tests (pytest)

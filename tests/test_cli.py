@@ -1,8 +1,8 @@
-"""Tests for graph-rest-cli GraphClient, REPL, and mode resolution."""
+"""Tests for graph-vis-cli GraphClient, REPL, and mode resolution."""
 
 import os
 from unittest.mock import patch
-from graph_rest_cli import GraphClient, GraphREPL, parse_args, execute_command
+from graph_vis_cli import GraphClient, GraphREPL, parse_args, execute_command
 
 
 def test_parse_args_defaults():

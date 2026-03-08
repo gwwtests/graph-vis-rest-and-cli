@@ -1,4 +1,4 @@
-# graph-rest-cli.py
+# graph-vis-cli.py
 
 CLI for the graph visualization server. Non-interactive by default (reads stdin for easy piping). Use `--repl` for interactive mode.
 
@@ -6,28 +6,28 @@ CLI for the graph visualization server. Non-interactive by default (reads stdin 
 
 ```bash
 # Pipe commands (default when no args)
-echo "Alice knows Bob" | ./graph-rest-cli.py
+echo "Alice knows Bob" | ./graph-vis-cli.py
 
 # Positional commands
-./graph-rest-cli.py "Alice knows Bob" "Charlie likes Alice" "g"
+./graph-vis-cli.py "Alice knows Bob" "Charlie likes Alice" "g"
 
 # Load graph files, then run commands
-./graph-rest-cli.py -l examples/social-network.csv "g"
-./graph-rest-cli.py -l data.csv -l extra.ttl "l nodes"
+./graph-vis-cli.py -l examples/social-network.csv "g"
+./graph-vis-cli.py -l data.csv -l extra.ttl "l nodes"
 
 # Load file, then enter REPL
-./graph-rest-cli.py -l examples/family-tree.dot --repl
+./graph-vis-cli.py -l examples/family-tree.dot --repl
 
 # Read commands from file
-./graph-rest-cli.py -i commands.txt
+./graph-vis-cli.py -i commands.txt
 
 # Interactive REPL
-./graph-rest-cli.py --repl
+./graph-vis-cli.py --repl
 
 # Help
-./graph-rest-cli.py help
-./graph-rest-cli.py -h
-./graph-rest-cli.py --help
+./graph-vis-cli.py help
+./graph-vis-cli.py -h
+./graph-vis-cli.py --help
 ```
 
 ## Environment Variables
@@ -37,7 +37,7 @@ Connection settings via env vars (flags override):
 ```bash
 export GRAPH_VIS_HOST=10.0.0.5
 export GRAPH_VIS_PORT=9999
-echo "g" | ./graph-rest-cli.py
+echo "g" | ./graph-vis-cli.py
 ```
 
 | Variable | Default | Description |
@@ -98,10 +98,10 @@ echo "g" | ./graph-rest-cli.py
 Ready-to-use example graphs in `examples/`:
 
 ```bash
-./graph-rest-cli.py -l examples/social-network.csv "g"
-./graph-rest-cli.py -l examples/family-tree.dot "l"
-./graph-rest-cli.py -l examples/web-of-knowledge.ttl "g"
-./graph-rest-cli.py -l examples/software-arch.mermaid "g"
+./graph-vis-cli.py -l examples/social-network.csv "g"
+./graph-vis-cli.py -l examples/family-tree.dot "l"
+./graph-vis-cli.py -l examples/web-of-knowledge.ttl "g"
+./graph-vis-cli.py -l examples/software-arch.mermaid "g"
 ```
 
 ## Testing

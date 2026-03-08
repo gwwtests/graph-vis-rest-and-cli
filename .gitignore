@@ -30,7 +30,7 @@ cache/
 *.log
 
 # Symlinks for Python imports
-graph_rest_cli.py
+graph_vis_cli.py
 graph_vis_server.py
 
 # OS
