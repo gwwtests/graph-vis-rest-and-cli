@@ -1,0 +1,1 @@
+{"nodes": [{"id": "X", "label": "X"}, {"id": "Y", "label": "Y"}, {"id": "Z", "label": "Z"}], "edges": [{"id": "e1", "from": "X", "to": "Y", "label": ""}, {"id": "e2", "from": "Y", "to": "Z"}]}
