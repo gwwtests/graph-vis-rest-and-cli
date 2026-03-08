@@ -1,0 +1,10 @@
+{"type":"node","id":"Server","label":"API Server","color":{"background":"#4CAF50","border":"#388E3C"},"shape":"box","font":{"color":"white","size":16}}
+{"type":"node","id":"DB","label":"Database","color":{"background":"#2196F3","border":"#1565C0"},"shape":"database","font":{"color":"white","size":16}}
+{"type":"node","id":"Cache","label":"Redis Cache","color":{"background":"#FF9800","border":"#E65100"},"shape":"diamond","font":{"size":14}}
+{"type":"node","id":"Client","label":"Web Client","color":{"background":"#9C27B0","border":"#6A1B9A"},"shape":"circle","font":{"color":"white","size":14}}
+{"type":"node","id":"Worker","label":"Background Worker","color":{"background":"#607D8B","border":"#37474F"},"shape":"box","font":{"color":"white","size":14}}
+{"type":"edge","from":"Client","to":"Server","label":"HTTP/REST","color":{"color":"#4CAF50"},"width":3}
+{"type":"edge","from":"Server","to":"DB","label":"queries","color":{"color":"#2196F3"},"width":2}
+{"type":"edge","from":"Server","to":"Cache","label":"reads/writes","color":{"color":"#FF9800"},"width":2,"dashes":true}
+{"type":"edge","from":"Server","to":"Worker","label":"enqueues","color":{"color":"#607D8B"},"width":1,"dashes":[5,5]}
+{"type":"edge","from":"Worker","to":"DB","label":"writes","color":{"color":"#795548"},"width":1}

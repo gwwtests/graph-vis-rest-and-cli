@@ -1,0 +1,25 @@
+# Multiline block demo — use with: ./graph-vis-cli.py -i examples/multiline-demo.txt
+
+# Plain block: each line is a command
++++
+Alice knows Bob
+Bob knows Charlie
+Charlie knows Alice
++++
+
+# CSV block
++++csv
+source,target,relationship
+Server,Database,queries
+Server,Cache,reads
+Cache,Database,syncs
++++
+
+# JSONL block with styling
++++jsonl
+{"type":"node","id":"HQ","label":"Headquarters","color":"#ff0000","shape":"star"}
+{"type":"edge","from":"HQ","to":"Server","label":"manages","width":3}
++++
+
+# Show the result
+g
