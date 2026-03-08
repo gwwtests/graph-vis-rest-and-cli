@@ -433,13 +433,13 @@ The CLI supports loading from multiple graph file formats:
 ./graph-vis-cli.py -l examples/styled-graph.jsonl
 
 # Graphviz DOT
-./graph-vis-cli.py -l examples/workflow.dot
+./graph-vis-cli.py -l examples/family-tree.dot
 
 # Mermaid
-./graph-vis-cli.py -l examples/architecture.mermaid
+./graph-vis-cli.py -l examples/software-arch.mermaid
 
 # Turtle/N3 (RDF)
-./graph-vis-cli.py -l examples/ontology.ttl
+./graph-vis-cli.py -l examples/web-of-knowledge.ttl
 
 # Multiple files combined
 ./graph-vis-cli.py -l file1.csv -l file2.jsonl "graph"

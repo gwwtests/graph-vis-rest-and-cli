@@ -56,6 +56,8 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | GET | `/api/input-mode` | — | Get current input mode `{mode}` |
 | POST | `/api/input-mode` | `{mode}` | Set input mode (multiline/single/minimal/none) |
 | GET | `/api/extensions` | — | List active extensions `{extensions: [...]}` |
+| GET | `/api/highlight-mode` | — | Get current highlight settings |
+| POST | `/api/highlight-mode` | `{mode?, fadeDuration?, ...}` | Set highlight mode (fade/pulse/glow) |
 | GET | `/api/screenshot` | query params | Capture graph as PNG/JPEG (via browser) |
 | GET | `/api/dom` | — | Graph layout introspection (via browser) |
 | POST | `/api/ui` | `{input_visible}` | Toggle browser UI elements |
@@ -72,6 +74,7 @@ Connect to `/ws`. Receives JSON broadcast events for all mutations:
 {"event": "add-triplet", "data": {"subject": "A", "predicate": "knows", "object": "B", "nodes": [...], "edges": [...]}}
 {"event": "clear", "data": {}}
 {"event": "input-mode", "data": {"mode": "minimal"}}
+{"event": "highlight-mode", "data": {"mode": "fade", ...}}
 ```
 
 Server can also send commands to the browser and receive responses:
@@ -163,7 +166,7 @@ Extensions communicate with external subscribers via namespaced WebSocket events
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GRAPH_VIS_PORT` | `7849` | Server port |
-| `GRAPH_VIS_HOST` | `127.0.0.1` | Server IP (CLI only) |
+| `GRAPH_VIS_HOST` | `0.0.0.0` (server) / `127.0.0.1` (CLI) | Bind address (server) / connect address (CLI) |
 | `GRAPH_VIS_INPUT_MODE` | `multiline` | Initial input mode (multiline/single/minimal/none) |
 | `GRAPH_VIS_EXTENSIONS` | — | Comma-separated extension filenames |
 
@@ -239,6 +242,8 @@ manage                       # Docker orchestration script
 examples/                    # Example graph files (.csv, .dot, .ttl, .mermaid, .jsonl)
 examples/demos/              # Demo launcher scripts for extensions
 docs/design/                 # Design documents
+docs/plans/                  # Planning and feature roadmap documents
+docs/tutorial/               # Illustrated tutorial with screenshots
 scripts/converters/          # Format converter scripts
 ├── csv2graph/               #   CSV → graph
 ├── ttl2graph/               #   Turtle/N3 → graph

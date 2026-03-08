@@ -405,43 +405,11 @@ class GraphREPL(cmd.Cmd):
         print(f"Loaded {loaded_edges} edges, {len(loaded_nodes)} nodes "
               f"from {filepath} ({fmt_name})")
 
-    def _load_jsonl(self, filepath):
-        """Load JSONL file directly, preserving styling extras."""
+    def _process_jsonl_lines(self, lines):
+        """Shared JSONL processing: parse lines and send to server."""
         loaded_nodes = 0
         loaded_edges = 0
-        with open(filepath) as fh:
-            for line in fh:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                obj = json.loads(line)
-                typ = obj.get("type")
-                if typ == "node":
-                    node_id = obj["id"]
-                    label = obj.get("label", node_id)
-                    extras = {k: v for k, v in obj.items()
-                              if k not in ("type", "id", "label")}
-                    self.client.add_node(node_id, label, **extras)
-                    loaded_nodes += 1
-                elif typ == "edge":
-                    frm, to = obj["from"], obj["to"]
-                    label = obj.get("label", "")
-                    extras = {k: v for k, v in obj.items()
-                              if k not in ("type", "from", "to", "label", "id")}
-                    if "id" in obj:
-                        extras["id"] = obj["id"]
-                    self.client.add_edge(frm, to, label, **extras)
-                    loaded_edges += 1
-                elif typ == "triplet":
-                    self.client.add_triplet(obj["subject"], obj["predicate"], obj["object"])
-                    loaded_edges += 1
-        print(f"Loaded {loaded_edges} edges, {loaded_nodes} nodes from {filepath} (jsonl)")
-
-    def _load_jsonl_text(self, text):
-        """Load JSONL from a text string (for multiline blocks)."""
-        loaded_nodes = 0
-        loaded_edges = 0
-        for line in text.split("\n"):
+        for line in lines:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
@@ -466,6 +434,17 @@ class GraphREPL(cmd.Cmd):
             elif typ == "triplet":
                 self.client.add_triplet(obj["subject"], obj["predicate"], obj["object"])
                 loaded_edges += 1
+        return loaded_nodes, loaded_edges
+
+    def _load_jsonl(self, filepath):
+        """Load JSONL file directly, preserving styling extras."""
+        with open(filepath) as fh:
+            loaded_nodes, loaded_edges = self._process_jsonl_lines(fh)
+        print(f"Loaded {loaded_edges} edges, {loaded_nodes} nodes from {filepath} (jsonl)")
+
+    def _load_jsonl_text(self, text):
+        """Load JSONL from a text string (for multiline blocks)."""
+        loaded_nodes, loaded_edges = self._process_jsonl_lines(text.split("\n"))
         if loaded_nodes or loaded_edges:
             print(f"Loaded {loaded_edges} edges from multiline jsonl block")
 
