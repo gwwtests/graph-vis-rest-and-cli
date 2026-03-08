@@ -10,6 +10,7 @@ Usage
     ./graph-vis-cli.py "Alice knows Bob" "g"          # positional commands
     ./graph-vis-cli.py -i commands.txt                # read from file
     ./graph-vis-cli.py -l data.csv "g"                # load file, then command
+    ./graph-vis-cli.py -l data.csv -s out.jsonl       # load file, store result
     ./graph-vis-cli.py -l data.csv --repl             # load file, then REPL
     ./graph-vis-cli.py --repl                         # interactive REPL
     ./graph-vis-cli.py help                           # show help
@@ -31,6 +32,7 @@ Commands
     graph / g                              Full graph summary
     clear                                  Clear graph to empty state
     Load / L         <filepath>            Load graph from file (.csv .jsonl etc.)
+    store / Store / S <filepath>           Save graph to file (.jsonl .csv .dot .ttl .mermaid)
     +++[format]      ...  +++              Multiline block (plain/csv/jsonl/ttl/dot/mermaid)
     help / ? / h                           Show command reference
     quit / exit / q                        Exit REPL
@@ -137,7 +139,7 @@ class GraphClient:
         return self._request("POST", "/api/ui", {"input_visible": input_visible})
 
 
-# Converter extension mapping
+# Converter extension mapping (ingest: format → graph)
 CONVERTER_MAP = {
     ".csv": "csv2graph",
     ".ttl": "ttl2graph",
@@ -147,6 +149,18 @@ CONVERTER_MAP = {
     ".mermaid": "mermaid2graph",
     ".mmd": "mermaid2graph",
     ".jsonl": "jsonl2graph",
+}
+
+# Export converter mapping (graph → format)
+EXPORT_MAP = {
+    ".csv": "graph2csv",
+    ".ttl": "graph2ttl",
+    ".n3": "graph2ttl",
+    ".dot": "graph2dot",
+    ".gv": "graph2dot",
+    ".mermaid": "graph2mermaid",
+    ".mmd": "graph2mermaid",
+    ".jsonl": "graph2jsonl",
 }
 
 
@@ -381,6 +395,55 @@ class GraphREPL(cmd.Cmd):
 
     do_L = do_Load
 
+    def do_store(self, arg):
+        """store <filepath> — Save graph to file (shortcuts: Store, S)"""
+        filepath = arg.strip()
+        if not filepath:
+            print("Usage: store <filepath>")
+            return
+        graph = self.client.get_graph()
+        if graph is None:
+            return
+        _, ext = os.path.splitext(filepath)
+        ext = ext.lower()
+        # Default to JSONL if no extension
+        if not ext:
+            filepath += ".jsonl"
+            ext = ".jsonl"
+        converter_name = EXPORT_MAP.get(ext)
+        if not converter_name:
+            print(f"Unsupported export format: {ext}")
+            print(f"Supported: {', '.join(sorted(set(EXPORT_MAP.values())))}")
+            return
+        # Find converter script
+        script_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "scripts", "converters", converter_name,
+            f"{converter_name}.py",
+        )
+        if not os.path.isfile(script_path):
+            print(f"Converter not found: {script_path}")
+            return
+        graph_json = json.dumps(graph)
+        try:
+            result = subprocess.run(
+                [sys.executable, script_path],
+                input=graph_json, capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                print(f"Converter error: {result.stderr}")
+                return
+            with open(filepath, "w") as f:
+                f.write(result.stdout)
+            nn, ne = len(graph["nodes"]), len(graph["edges"])
+            fmt_name = ext.lstrip(".")
+            print(f"Stored {ne} edges, {nn} nodes to {filepath} ({fmt_name})")
+        except subprocess.TimeoutExpired:
+            print("Converter timed out (30s)")
+
+    do_Store = do_store
+    do_S = do_store
+
     def _load_intermediate(self, text, filepath, ext):
         """Parse intermediate format and send triplets to server."""
         lines = text.strip().split("\n")
@@ -476,12 +539,14 @@ class GraphREPL(cmd.Cmd):
   dom                                    Show graph layout info
   ui               hide|show             Toggle input controls
   Load / L         <filepath>            Load from file
+  store / Store / S <filepath>           Save to file
   help / ? / h                           Show this help
   quit / exit / q                        Exit
 
 Shorthand: 2 bare words = add labelless edge (e.g. "Alice Bob")
            3 bare words = add triplet (e.g. "Alice knows Bob")
-Formats for Load: .csv .ttl .n3 .dot .gv .mermaid .mmd .jsonl
+Formats for Load:  .csv .ttl .n3 .dot .gv .mermaid .mmd .jsonl
+Formats for store: .jsonl .csv .dot .gv .ttl .n3 .mermaid .mmd
 
 Multiline blocks:
   +++              Start plain block (each line is a command)
@@ -616,6 +681,7 @@ def parse_args(argv=None):
   echo "Alice knows Bob" | %(prog)s            Pipe commands (default)
   %(prog)s "Alice knows Bob" "g"               Positional commands
   %(prog)s -l data.csv "g"                     Load file, run command
+  %(prog)s -l data.csv -s out.jsonl            Load file, store result
   %(prog)s -l data.csv --repl                  Load file, enter REPL
   %(prog)s --repl                              Interactive REPL
   %(prog)s help                                Show help
@@ -646,6 +712,10 @@ Environment variables:
     parser.add_argument("-l", "--load", action="append", default=[],
                         metavar="FILE",
                         help="Load graph file before commands (repeatable)")
+
+    # Post-execution store
+    parser.add_argument("-s", "--store", type=str, metavar="FILE",
+                        help="Save graph to file after commands (.jsonl .csv .dot .ttl .mermaid)")
 
     # Positional commands
     parser.add_argument("commands", nargs="*",
@@ -705,7 +775,11 @@ def main():
         elif not args.repl:
             args.repl = True
 
-    # Step 3: Enter REPL if requested
+    # Step 3: Store graph if requested
+    if args.store:
+        repl.do_store(args.store)
+
+    # Step 4: Enter REPL if requested
     if args.repl:
         try:
             repl.cmdloop()

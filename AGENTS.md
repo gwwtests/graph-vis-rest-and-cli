@@ -188,9 +188,21 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 ./graph-vis-cli.py --repl
 ```
 
-**Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--repl`
+```bash
+# Store graph to file
+./graph-vis-cli.py "Alice knows Bob" "store graph.jsonl"
 
-Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `clear`, `screenshot/ss`, `dom`, `ui hide/show`, `Load/L`, `help/?/h`, `quit/q`
+# Load, modify, store
+./graph-vis-cli.py -l data.csv "Alice likes Eve" -s out.jsonl
+
+# Format detected from extension
+./graph-vis-cli.py -l data.csv -s graph.dot
+./graph-vis-cli.py -l data.csv -s graph.csv
+```
+
+**Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--store` → `--repl`
+
+Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `clear`, `screenshot/ss`, `dom`, `ui hide/show`, `Load/L`, `store/Store/S`, `help/?/h`, `quit/q`
 
 2 bare words = labelless edge, 3 bare words = add triplet.
 
@@ -200,7 +212,7 @@ See `graph-vis-cli.README.md` for full reference.
 
 ## Format Converters
 
-Load graphs from files via the `L` command or use converters standalone:
+### Ingest (Load): format → graph
 
 | Extension | Converter | Dependencies |
 |-----------|-----------|-------------|
@@ -210,7 +222,17 @@ Load graphs from files via the `L` command or use converters standalone:
 | `.mermaid`, `.mmd` | `scripts/converters/mermaid2graph/mermaid2graph.py` | stdlib |
 | `.jsonl` | `scripts/converters/jsonl2graph/jsonl2graph.py` | stdlib |
 
-Each converter outputs an intermediate format (plain/`--csv`/`--jsonl`) and works as both a CLI tool and an importable library.
+### Export (Store): graph → format
+
+| Extension | Converter | Lossless | Dependencies |
+|-----------|-----------|----------|-------------|
+| `.jsonl` | `scripts/converters/graph2jsonl/graph2jsonl.py` | Yes | stdlib |
+| `.csv` | `scripts/converters/graph2csv/graph2csv.py` | No | stdlib |
+| `.dot`, `.gv` | `scripts/converters/graph2dot/graph2dot.py` | No | stdlib |
+| `.ttl`, `.n3` | `scripts/converters/graph2ttl/graph2ttl.py` | No | rdflib (via uv) |
+| `.mermaid`, `.mmd` | `scripts/converters/graph2mermaid/graph2mermaid.py` | No | stdlib |
+
+All converters work as both CLI tools and importable libraries. Only JSONL is lossless (preserves styling, hooks, extras). Other formats export triplets only.
 
 ## Testing
 
@@ -218,11 +240,17 @@ Each converter outputs an intermediate format (plain/`--csv`/`--jsonl`) and work
 # Server unit tests (API + WebSocket + Extensions)
 PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py tests/test_extensions.py -v -p no:playwright
 
-# CLI unit tests
+# CLI unit tests (includes store command tests)
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
 
-# JSONL converter tests
-PYTHONPATH=. pytest tests/test_jsonl2graph.py -v -p no:playwright
+# Ingest converter tests
+PYTHONPATH=. pytest tests/test_csv2graph.py tests/test_dot2graph.py tests/test_mermaid2graph.py tests/test_jsonl2graph.py -v -p no:playwright --noconftest
+
+# Export converter tests (graph2X)
+PYTHONPATH=. pytest tests/test_graph2jsonl.py tests/test_graph2csv.py tests/test_graph2dot.py tests/test_graph2mermaid.py -v -p no:playwright --noconftest
+
+# TTL converter tests (require rdflib)
+uv run --with rdflib pytest tests/test_ttl2graph.py tests/test_graph2ttl.py -v -p no:playwright --noconftest
 
 # E2E tests (Docker)
 ./manage test
@@ -245,9 +273,14 @@ docs/design/                 # Design documents
 docs/plans/                  # Planning and feature roadmap documents
 docs/tutorial/               # Illustrated tutorial with screenshots
 scripts/converters/          # Format converter scripts
-├── csv2graph/               #   CSV → graph
-├── ttl2graph/               #   Turtle/N3 → graph
-├── dot2graph/               #   Graphviz DOT → graph
-├── mermaid2graph/           #   Mermaid → graph
-└── jsonl2graph/             #   JSONL → graph (with styling)
+├── csv2graph/               #   CSV → graph (ingest)
+├── ttl2graph/               #   Turtle/N3 → graph (ingest)
+├── dot2graph/               #   Graphviz DOT → graph (ingest)
+├── mermaid2graph/           #   Mermaid → graph (ingest)
+├── jsonl2graph/             #   JSONL → graph (ingest, with styling)
+├── graph2jsonl/             #   graph → JSONL (export, lossless)
+├── graph2csv/               #   graph → CSV (export)
+├── graph2dot/               #   graph → Graphviz DOT (export)
+├── graph2ttl/               #   graph → Turtle RDF (export)
+└── graph2mermaid/           #   graph → Mermaid (export)
 ```

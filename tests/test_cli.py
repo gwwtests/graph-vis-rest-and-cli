@@ -3,8 +3,9 @@
 import json
 import os
 from unittest.mock import patch
-from graph_vis_cli import (GraphClient, GraphREPL, CONVERTER_MAP, parse_args,
-                           execute_command, MultilineProcessor, execute_commands)
+from graph_vis_cli import (GraphClient, GraphREPL, CONVERTER_MAP, EXPORT_MAP,
+                           parse_args, execute_command, MultilineProcessor,
+                           execute_commands)
 
 
 def test_parse_args_defaults():
@@ -301,3 +302,195 @@ def test_multiline_invalid_format():
     proc = MultilineProcessor(repl)
     assert proc.feed("+++invalidformat") is False
     assert proc.in_block is False
+
+
+# ===========================================================================
+# Store command tests
+# ===========================================================================
+
+import subprocess
+import sys
+import tempfile
+
+
+def test_export_map_formats():
+    """EXPORT_MAP covers all expected formats."""
+    assert EXPORT_MAP[".jsonl"] == "graph2jsonl"
+    assert EXPORT_MAP[".csv"] == "graph2csv"
+    assert EXPORT_MAP[".dot"] == "graph2dot"
+    assert EXPORT_MAP[".gv"] == "graph2dot"
+    assert EXPORT_MAP[".ttl"] == "graph2ttl"
+    assert EXPORT_MAP[".n3"] == "graph2ttl"
+    assert EXPORT_MAP[".mermaid"] == "graph2mermaid"
+    assert EXPORT_MAP[".mmd"] == "graph2mermaid"
+
+
+def test_parse_args_store_flag():
+    """--store / -s flag is parsed correctly."""
+    args = parse_args(["-s", "output.jsonl"])
+    assert args.store == "output.jsonl"
+    args2 = parse_args(["--store", "graph.csv"])
+    assert args2.store == "graph.csv"
+
+
+def test_parse_args_store_default():
+    """--store defaults to None."""
+    args = parse_args([])
+    assert args.store is None
+
+
+def test_parse_args_store_combined():
+    """-l and -s can be combined."""
+    args = parse_args(["-l", "data.csv", "-s", "out.jsonl", "g"])
+    assert args.load == ["data.csv"]
+    assert args.store == "out.jsonl"
+    assert args.commands == ["g"]
+
+
+SAMPLE_GRAPH = {
+    "nodes": [{"id": "Alice", "label": "Alice"}, {"id": "Bob", "label": "Bob"}],
+    "edges": [{"id": "Alice-knows-Bob", "from": "Alice", "to": "Bob", "label": "knows"}],
+}
+
+
+def test_store_jsonl(capsys):
+    """store command writes JSONL output to file."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as f:
+            tmppath = f.name
+        try:
+            repl.do_store(tmppath)
+            output = capsys.readouterr().out
+            assert "Stored" in output
+            assert "jsonl" in output
+            with open(tmppath) as f:
+                content = f.read()
+            assert "Alice" in content
+            assert "knows" in content
+        finally:
+            os.unlink(tmppath)
+
+
+def test_store_csv(capsys):
+    """store command writes CSV output to file."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
+            tmppath = f.name
+        try:
+            repl.do_store(tmppath)
+            output = capsys.readouterr().out
+            assert "Stored" in output
+            assert "csv" in output
+            with open(tmppath) as f:
+                content = f.read()
+            assert "from,to,label" in content
+            assert "Alice" in content
+        finally:
+            os.unlink(tmppath)
+
+
+def test_store_dot(capsys):
+    """store command writes DOT output to file."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        with tempfile.NamedTemporaryFile(suffix=".dot", delete=False, mode="w") as f:
+            tmppath = f.name
+        try:
+            repl.do_store(tmppath)
+            output = capsys.readouterr().out
+            assert "Stored" in output
+            assert "dot" in output
+            with open(tmppath) as f:
+                content = f.read()
+            assert "digraph" in content
+            assert "Alice" in content
+        finally:
+            os.unlink(tmppath)
+
+
+def test_store_no_extension_defaults_jsonl(capsys):
+    """store without extension defaults to .jsonl."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        with tempfile.NamedTemporaryFile(delete=False, mode="w", prefix="graph") as f:
+            tmppath = f.name
+        try:
+            repl.do_store(tmppath)
+            output = capsys.readouterr().out
+            assert "jsonl" in output
+            assert os.path.isfile(tmppath + ".jsonl")
+        finally:
+            if os.path.isfile(tmppath + ".jsonl"):
+                os.unlink(tmppath + ".jsonl")
+            if os.path.isfile(tmppath):
+                os.unlink(tmppath)
+
+
+def test_store_unsupported_format(capsys):
+    """store with unsupported extension shows error."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        repl.do_store("graph.xml")
+        output = capsys.readouterr().out
+        assert "Unsupported" in output
+
+
+def test_store_empty_arg(capsys):
+    """store without filepath shows usage."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    repl.do_store("")
+    output = capsys.readouterr().out
+    assert "Usage" in output
+
+
+def test_store_aliases():
+    """Store and S are aliases for store."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    assert repl.do_Store == repl.do_store
+    assert repl.do_S == repl.do_store
+
+
+def test_store_empty_graph(capsys):
+    """store works with an empty graph."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    empty = {"nodes": [], "edges": []}
+    with patch.object(c, "get_graph", return_value=empty):
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as f:
+            tmppath = f.name
+        try:
+            repl.do_store(tmppath)
+            output = capsys.readouterr().out
+            assert "Stored 0 edges, 0 nodes" in output
+        finally:
+            os.unlink(tmppath)
+
+
+def test_store_roundtrip_jsonl():
+    """JSONL store → load round-trip preserves graph data."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as f:
+            tmppath = f.name
+        try:
+            repl.do_store(tmppath)
+            # Read back and verify through jsonl2graph
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+            from scripts.converters.jsonl2graph.jsonl2graph import convert
+            result = convert(tmppath)
+            assert len(result["edges"]) == 1
+            assert result["edges"][0]["from"] == "Alice"
+            assert result["edges"][0]["to"] == "Bob"
+            assert result["edges"][0]["label"] == "knows"
+        finally:
+            os.unlink(tmppath)
