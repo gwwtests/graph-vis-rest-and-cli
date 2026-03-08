@@ -270,3 +270,31 @@ def test_ui_no_browser(client):
     """UI toggle returns 503 when no browser is connected."""
     resp = client.post("/api/ui", json={"input_visible": False})
     assert resp.status_code == 503
+
+
+def test_get_input_mode_default(client):
+    r = client.get("/api/input-mode")
+    assert r.status_code == 200
+    assert r.json() == {"mode": "multiline"}
+
+
+def test_set_input_mode(client):
+    r = client.post("/api/input-mode", json={"mode": "minimal"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert r.json()["mode"] == "minimal"
+
+    r = client.get("/api/input-mode")
+    assert r.json()["mode"] == "minimal"
+
+
+def test_set_input_mode_all_valid(client):
+    for mode in ("multiline", "single", "minimal", "none"):
+        r = client.post("/api/input-mode", json={"mode": mode})
+        assert r.status_code == 200
+        assert r.json()["mode"] == mode
+
+
+def test_set_input_mode_invalid(client):
+    r = client.post("/api/input-mode", json={"mode": "invalid"})
+    assert r.status_code == 422

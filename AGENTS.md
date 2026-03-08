@@ -53,6 +53,8 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | POST | `/api/remove-edge` | `{id}` | Remove an edge |
 | POST | `/api/add-triplet` | `{subject, predicate, object}` | Add subject→predicate→object |
 | POST | `/api/clear` | — | Clear graph to empty state |
+| GET | `/api/input-mode` | — | Get current input mode `{mode}` |
+| POST | `/api/input-mode` | `{mode}` | Set input mode (multiline/single/minimal/none) |
 | GET | `/api/screenshot` | query params | Capture graph as PNG/JPEG (via browser) |
 | GET | `/api/dom` | — | Graph layout introspection (via browser) |
 | POST | `/api/ui` | `{input_visible}` | Toggle browser UI elements |
@@ -68,6 +70,7 @@ Connect to `/ws`. Receives JSON broadcast events for all mutations:
 {"event": "remove-edge", "data": {"id": "A-knows-B"}}
 {"event": "add-triplet", "data": {"subject": "A", "predicate": "knows", "object": "B", "nodes": [...], "edges": [...]}}
 {"event": "clear", "data": {}}
+{"event": "input-mode", "data": {"mode": "minimal"}}
 ```
 
 Server can also send commands to the browser and receive responses:
@@ -88,6 +91,7 @@ Browser responds:
 |----------|---------|-------------|
 | `GRAPH_VIS_PORT` | `7849` | Server port |
 | `GRAPH_VIS_HOST` | `127.0.0.1` | Server IP (CLI only) |
+| `GRAPH_VIS_INPUT_MODE` | `multiline` | Initial input mode (multiline/single/minimal/none) |
 
 ## CLI
 

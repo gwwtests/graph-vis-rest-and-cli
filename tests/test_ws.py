@@ -96,6 +96,14 @@ def test_ws_broadcast_on_highlight_mode(client):
         assert msg["data"]["fadeDuration"] == 3000
 
 
+def test_ws_broadcast_on_input_mode(client):
+    with client.websocket_connect("/ws") as ws:
+        client.post("/api/input-mode", json={"mode": "minimal"})
+        msg = json.loads(ws.receive_text())
+        assert msg["event"] == "input-mode"
+        assert msg["data"]["mode"] == "minimal"
+
+
 def test_ws_disconnect_handling(client):
     with client.websocket_connect("/ws"):
         pass  # disconnects on exit

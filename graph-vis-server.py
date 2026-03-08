@@ -39,6 +39,17 @@ highlight_settings: dict = {
 
 
 # ---------------------------------------------------------------------------
+# Input mode settings (in-memory, broadcast via WS)
+# ---------------------------------------------------------------------------
+
+VALID_INPUT_MODES = ("multiline", "single", "minimal", "none")
+
+input_mode_settings: dict = {
+    "mode": os.environ.get("GRAPH_VIS_INPUT_MODE", "multiline"),
+}
+
+
+# ---------------------------------------------------------------------------
 # Graph store (in-memory)
 # ---------------------------------------------------------------------------
 
@@ -207,6 +218,17 @@ class HighlightModeRequest(BaseModel):
         return v
 
 
+class InputModeRequest(BaseModel):
+    mode: str
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v):
+        if v not in VALID_INPUT_MODES:
+            raise ValueError(f"mode must be one of {VALID_INPUT_MODES}")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -287,6 +309,18 @@ async def set_highlight_mode(req: HighlightModeRequest):
         highlight_settings["highlightEdgeColor"] = req.highlightEdgeColor
     await manager.broadcast({"event": "highlight-mode", "data": dict(highlight_settings)})
     return {"ok": True, **highlight_settings}
+
+
+@app.get("/api/input-mode")
+async def get_input_mode():
+    return input_mode_settings
+
+
+@app.post("/api/input-mode")
+async def set_input_mode(req: InputModeRequest):
+    input_mode_settings["mode"] = req.mode
+    await manager.broadcast({"event": "input-mode", "data": {"mode": req.mode}})
+    return {"ok": True, "mode": req.mode}
 
 
 @app.post("/api/add-triplet")
@@ -420,7 +454,8 @@ if __name__ == "__main__":
   %(prog)s --host 127.0.0.1        Bind to localhost only
 
 Environment variables:
-  GRAPH_VIS_PORT    Server port (default: 7849)""",
+  GRAPH_VIS_PORT         Server port (default: 7849)
+  GRAPH_VIS_INPUT_MODE   Initial input mode (default: multiline)""",
     )
     parser.add_argument("--host",
                         default=os.environ.get("GRAPH_VIS_HOST", "0.0.0.0"),
@@ -428,6 +463,10 @@ Environment variables:
     parser.add_argument("--port", type=int,
                         default=int(os.environ.get("GRAPH_VIS_PORT", "7849")),
                         help="Server port (env: GRAPH_VIS_PORT, default: 7849)")
+    parser.add_argument("--input-mode",
+                        default=os.environ.get("GRAPH_VIS_INPUT_MODE", "multiline"),
+                        choices=VALID_INPUT_MODES,
+                        help="Initial input mode (env: GRAPH_VIS_INPUT_MODE, default: multiline)")
     # Support bare "help" as positional
     parser.add_argument("command", nargs="?", default=None,
                         help=argparse.SUPPRESS)
@@ -438,4 +477,5 @@ Environment variables:
     elif args.command is not None:
         parser.error(f"unknown command: {args.command}")
 
+    input_mode_settings["mode"] = args.input_mode
     uvicorn.run(app, host=args.host, port=args.port)

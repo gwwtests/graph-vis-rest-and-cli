@@ -229,6 +229,17 @@
                     body: JSON.stringify(settings),
                 });
             },
+            async getInputMode() {
+                const r = await fetch('/api/input-mode');
+                return r.json();
+            },
+            async setInputMode(mode) {
+                return fetch('/api/input-mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode}),
+                });
+            },
         };
 
         // ---------------------------------------------------------------
@@ -526,6 +537,9 @@
                     highlightMgr.updateSettings(data);
                     document.getElementById('highlight-mode-select').value = data.mode;
                     break;
+                case 'input-mode':
+                    setInputMode(data.mode);
+                    break;
             }
         }
 
@@ -714,26 +728,56 @@
         });
 
         // ---------------------------------------------------------------
-        // Input mode handling
+        // Input mode handling (4 modes: multiline, single, minimal, none)
         // ---------------------------------------------------------------
         const modeToggle = document.getElementById('mode-toggle');
+        const inputContainer = document.getElementById('input-container');
         const singleInput = document.getElementById('relationship-input');
         const bulkInput = document.getElementById('bulk-input');
-        let isMultilineMode = true;
+        const addButton = document.getElementById('add-button');
+        let currentInputMode = 'multiline';
 
-        function toggleInputMode(block_mode = null) {
-            if (block_mode !== null) {
-                isMultilineMode = block_mode;
-            } else {
-                isMultilineMode = !isMultilineMode;
+        // Cycle order for user toggle (none is server-only)
+        const CYCLE_MODES = ['multiline', 'single', 'minimal'];
+        const CYCLE_LABELS = {multiline: '▤ Multi', single: '▬ Single', minimal: '◼ Min'};
+
+        function setInputMode(mode) {
+            currentInputMode = mode;
+            switch (mode) {
+                case 'multiline':
+                    modeToggle.style.display = '';
+                    modeToggle.textContent = CYCLE_LABELS.multiline;
+                    inputContainer.style.display = 'flex';
+                    singleInput.style.display = 'none';
+                    bulkInput.style.display = 'block';
+                    addButton.style.display = '';
+                    break;
+                case 'single':
+                    modeToggle.style.display = '';
+                    modeToggle.textContent = CYCLE_LABELS.single;
+                    inputContainer.style.display = 'flex';
+                    singleInput.style.display = 'block';
+                    bulkInput.style.display = 'none';
+                    addButton.style.display = '';
+                    break;
+                case 'minimal':
+                    modeToggle.style.display = '';
+                    modeToggle.textContent = CYCLE_LABELS.minimal;
+                    inputContainer.style.display = 'none';
+                    break;
+                case 'none':
+                    modeToggle.style.display = 'none';
+                    inputContainer.style.display = 'none';
+                    break;
             }
-            singleInput.style.display = isMultilineMode ? 'none' : 'block';
-            bulkInput.style.display = isMultilineMode ? 'block' : 'none';
-            modeToggle.textContent = isMultilineMode ? 'Single' : 'Multi';
         }
 
-        modeToggle.addEventListener('click', () => toggleInputMode());
-        toggleInputMode(true);
+        modeToggle.addEventListener('click', () => {
+            const idx = CYCLE_MODES.indexOf(currentInputMode);
+            const next = CYCLE_MODES[(idx + 1) % CYCLE_MODES.length];
+            setInputMode(next);
+        });
+        setInputMode('multiline');
 
         // ---------------------------------------------------------------
         // Delete modal
@@ -803,7 +847,7 @@
         // Input handling — server-first mutations
         // ---------------------------------------------------------------
         async function handleInput() {
-            if (isMultilineMode) {
+            if (currentInputMode === 'multiline') {
                 const text = bulkInput.value.trim();
                 const triplets = processText(text);
                 for (const [start, edge, end] of triplets) {
@@ -845,6 +889,12 @@
                 highlightSelect.value = hs.mode;
             } catch (err) {
                 console.error('Failed to load highlight settings:', err);
+            }
+            try {
+                const im = await api.getInputMode();
+                setInputMode(im.mode);
+            } catch (err) {
+                console.error('Failed to load input mode:', err);
             }
             connectWebSocket();
         }
