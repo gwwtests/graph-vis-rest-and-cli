@@ -92,7 +92,7 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 
 **Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--repl`
 
-Commands: `add/a`, `del/d/rm`, `list/ls/l`, `graph/g`, `Load/L`, `help/?/h`, `quit/q`
+Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `Load/L`, `help/?/h`, `quit/q`
 
 3 bare words default to add triplet — `Alice knows Bob` = `add Alice knows Bob`.
 

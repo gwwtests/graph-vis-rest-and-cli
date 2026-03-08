@@ -318,10 +318,10 @@ class GraphREPL(cmd.Cmd):
             super().do_help(arg)
             return
         print("""Commands:
-  add / a          <subj> <pred> <obj>   Add triplet
+  add / a / +      <subj> <pred> <obj>   Add triplet
   add-node / an    <id>                  Add single node
   add-edge / ae    <from> <pred> <to>    Add edge
-  del / d / rm     <id>                  Delete node (cascade)
+  del / d / rm / - <id>                  Delete node (cascade)
   del-edge / de    <edge-id>             Delete edge
   list / ls / l    [nodes|edges]         List graph contents
   graph / g                              Full graph summary
@@ -337,7 +337,11 @@ Formats for Load: .csv .ttl .n3 .dot .gv .mermaid .mmd""")
     def default(self, line):
         """Handle unrecognized commands — 3 bare words become add triplet."""
         parts = line.split()
-        if len(parts) == 3:
+        if parts and parts[0] == '+':
+            self.do_add(' '.join(parts[1:]))
+        elif parts and parts[0] == '-':
+            self.do_del(' '.join(parts[1:]))
+        elif len(parts) == 3:
             self.do_add(line)
         else:
             print(f"Unknown command: {line.split()[0] if parts else ''}")

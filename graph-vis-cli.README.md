@@ -69,10 +69,10 @@ echo "g" | ./graph-vis-cli.py
 
 | Command | Shortcuts | Args | Description |
 |---------|-----------|------|-------------|
-| `add` | `a` | `<subj> <pred> <obj>` | Add triplet |
+| `add` | `a`, `+` | `<subj> <pred> <obj>` | Add triplet |
 | `add-node` | `an` | `<id>` | Add single node |
 | `add-edge` | `ae` | `<from> <pred> <to>` | Add edge |
-| `del` / `delete` | `d`, `rm` | `<id>` | Delete node (cascade) |
+| `del` / `delete` | `d`, `rm`, `-` | `<id>` | Delete node (cascade) |
 | `del-edge` | `de` | `<edge-id>` | Delete edge |
 | `list` / `ls` | `l` | `[nodes\|edges]` | List graph contents |
 | `graph` | `g` | — | Full graph summary |
