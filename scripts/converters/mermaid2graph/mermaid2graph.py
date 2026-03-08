@@ -49,29 +49,31 @@ import sys
 
 
 # ---------------------------------------------------------------------------
-# Regex patterns for the three supported edge forms.  Each pattern captures
-# three groups: the source node, the label (if present), and the target node.
+# Regex patterns for edge forms.  Each pattern captures three groups: the
+# source node, the label (if present), and the target node.
 #
-# Pattern 1:  A -->|label| B
-#   The pipe-delimited form places the label directly after the arrow-head,
-#   enclosed in vertical bars.
+# Supported arrow styles:
+#   -->   normal directed arrow
+#   ==>   thick directed arrow
+#   -.->  dotted directed arrow
 #
-# Pattern 2:  A -- label --> B
-#   Here the label sits between a double-dash and the arrow, separated by
-#   whitespace on both sides.
-#
-# Pattern 3:  A --> B  (no label)
-#   A plain directed arrow with no annotation at all.
+# Label forms:
+#   A -->|label| B          pipe-delimited label
+#   A -- label --> B        label between double-dash and arrow
+#   A --> B                 bare arrow (label defaults to "->")
 # ---------------------------------------------------------------------------
 
+# Arrow stem alternatives: --> | ==> | -.->
+_ARROW = r"(?:-->|==>|-\.->)"
+
 _PAT_PIPE_LABEL = re.compile(
-    r"^\s*(\S+)\s+-->\|([^|]+)\|\s+(\S+)"
+    rf"^\s*(\S+)\s+{_ARROW}\|([^|]+)\|\s+(\S+)"
 )
 _PAT_DASH_LABEL = re.compile(
-    r"^\s*(\S+)\s+--\s+(.+?)\s+-->\s+(\S+)"
+    rf"^\s*(\S+)\s+--\s+(.+?)\s+{_ARROW}\s+(\S+)"
 )
 _PAT_NO_LABEL = re.compile(
-    r"^\s*(\S+)\s+-->\s+(\S+)"
+    rf"^\s*(\S+)\s+{_ARROW}\s+(\S+)"
 )
 
 _HEADER_RE = re.compile(r"^\s*(graph|flowchart)\s", re.IGNORECASE)
