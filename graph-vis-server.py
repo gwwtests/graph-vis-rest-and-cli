@@ -50,6 +50,13 @@ input_mode_settings: dict = {
 
 
 # ---------------------------------------------------------------------------
+# Extension loading
+# ---------------------------------------------------------------------------
+
+active_extensions: list[dict] = []
+
+
+# ---------------------------------------------------------------------------
 # Graph store (in-memory)
 # ---------------------------------------------------------------------------
 
@@ -323,6 +330,11 @@ async def set_input_mode(req: InputModeRequest):
     return {"ok": True, "mode": req.mode}
 
 
+@app.get("/api/extensions")
+async def get_extensions():
+    return {"extensions": active_extensions}
+
+
 @app.post("/api/add-triplet")
 async def add_triplet(req: AddTripletRequest):
     result = store.add_triplet(req.subject, req.predicate, req.object)
@@ -411,13 +423,22 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             text = await websocket.receive_text()
-            # Check if this is a command response from browser
             try:
                 msg = json.loads(text)
+                # Command response from browser
                 if "response_to" in msg:
                     req_id = msg["response_to"]
                     if req_id in _pending_requests and not _pending_requests[req_id].done():
                         _pending_requests[req_id].set_result(msg.get("data", {}))
+                    continue
+                # Extension events: relay to all other clients
+                if "event" in msg and str(msg["event"]).startswith("ext:"):
+                    for conn in list(manager.active_connections):
+                        if conn is not websocket:
+                            try:
+                                await conn.send_text(text)
+                            except Exception:
+                                manager.disconnect(conn)
                     continue
             except (json.JSONDecodeError, KeyError):
                 pass
@@ -452,10 +473,12 @@ if __name__ == "__main__":
   %(prog)s                          Start on default port 7849
   %(prog)s --port 9999              Start on custom port
   %(prog)s --host 127.0.0.1        Bind to localhost only
+  %(prog)s --ext color-spawner.js --ext color-spawner.css  Load extensions
 
 Environment variables:
-  GRAPH_VIS_PORT         Server port (default: 7849)
-  GRAPH_VIS_INPUT_MODE   Initial input mode (default: multiline)""",
+  GRAPH_VIS_PORT           Server port (default: 7849)
+  GRAPH_VIS_INPUT_MODE     Initial input mode (default: multiline)
+  GRAPH_VIS_EXTENSIONS     Comma-separated extension filenames""",
     )
     parser.add_argument("--host",
                         default=os.environ.get("GRAPH_VIS_HOST", "0.0.0.0"),
@@ -467,6 +490,8 @@ Environment variables:
                         default=os.environ.get("GRAPH_VIS_INPUT_MODE", "multiline"),
                         choices=VALID_INPUT_MODES,
                         help="Initial input mode (env: GRAPH_VIS_INPUT_MODE, default: multiline)")
+    parser.add_argument("--ext", action="append", default=[],
+                        help="Load JS/CSS extension from static/extensions/ (repeatable)")
     # Support bare "help" as positional
     parser.add_argument("command", nargs="?", default=None,
                         help=argparse.SUPPRESS)
@@ -478,4 +503,26 @@ Environment variables:
         parser.error(f"unknown command: {args.command}")
 
     input_mode_settings["mode"] = args.input_mode
+
+    # Collect extensions from --ext flags and GRAPH_VIS_EXTENSIONS env var
+    ext_names = list(args.ext)
+    env_exts = os.environ.get("GRAPH_VIS_EXTENSIONS", "")
+    if env_exts:
+        ext_names.extend(e.strip() for e in env_exts.split(",") if e.strip())
+    # Deduplicate while preserving order
+    seen = set()
+    for name in ext_names:
+        if name not in seen:
+            seen.add(name)
+            ext_path = os.path.join(STATIC_DIR, "extensions", name)
+            if not os.path.isfile(ext_path):
+                parser.error(f"Extension not found: {ext_path}")
+            ext_type = "css" if name.endswith(".css") else "js"
+            active_extensions.append({
+                "type": ext_type,
+                "path": f"/static/extensions/{name}",
+            })
+    if active_extensions:
+        print(f"Loaded extensions: {', '.join(e['path'] for e in active_extensions)}")
+
     uvicorn.run(app, host=args.host, port=args.port)

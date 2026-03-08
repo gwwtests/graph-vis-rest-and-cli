@@ -156,14 +156,6 @@
     <div id="graph"></div>
 
     <div id="overlay" class="overlay"></div>
-    <div id="delete-modal" class="modal">
-        <p>Should I delete vertex</p>
-        <p id="vertex-name" style="font-weight: bold; margin: 10px 0;"></p>
-        <div class="modal-buttons">
-            <button class="modal-button yes-button" id="yes-button">Yes</button>
-            <button class="modal-button no-button" id="no-button">No</button>
-        </div>
-    </div>
 
     <script>
         // Local fallback loader for vis-network
@@ -578,24 +570,34 @@
         const highlightMgr = new HighlightManager(nodes, edges);
 
         // ---------------------------------------------------------------
+        // Extension command handler registry
+        // ---------------------------------------------------------------
+        const extCommandHandlers = {};
+
+        // ---------------------------------------------------------------
         // WS command handler (server → browser → server)
         // ---------------------------------------------------------------
         async function handleWsCommand(msg) {
             const {command, request_id, params} = msg;
             let result = {};
             try {
-                switch (command) {
-                    case 'capture-screenshot':
-                        result = await captureScreenshot(params || {});
-                        break;
-                    case 'get-dom':
-                        result = getDomInfo();
-                        break;
-                    case 'set-ui':
-                        result = setUiState(params || {});
-                        break;
-                    default:
-                        result = {error: 'Unknown command: ' + command};
+                // Check extension handlers first
+                if (extCommandHandlers[command]) {
+                    result = await extCommandHandlers[command](params || {});
+                } else {
+                    switch (command) {
+                        case 'capture-screenshot':
+                            result = await captureScreenshot(params || {});
+                            break;
+                        case 'get-dom':
+                            result = getDomInfo();
+                            break;
+                        case 'set-ui':
+                            result = setUiState(params || {});
+                            break;
+                        default:
+                            result = {error: 'Unknown command: ' + command};
+                    }
                 }
             } catch (e) {
                 result = {error: e.message};
@@ -780,50 +782,129 @@
         setInputMode('multiline');
 
         // ---------------------------------------------------------------
-        // Delete modal
+        // Hook action executor
         // ---------------------------------------------------------------
-        const modal = document.getElementById('delete-modal');
-        const overlay = document.getElementById('overlay');
-        const vertexName = document.getElementById('vertex-name');
-        const yesButton = document.getElementById('yes-button');
-        const noButton = document.getElementById('no-button');
-
-        let selectedNode = null;
-        let lastClickTime = 0;
-
-        network.on('click', function(params) {
-            const currentTime = new Date().getTime();
-            const clickDelta = currentTime - lastClickTime;
-            if (params.nodes.length > 0) {
-                if (clickDelta < 300) {
-                    selectedNode = params.nodes[0];
-                    showDeleteModal(selectedNode);
+        function executeAction(action) {
+            switch (action.action) {
+                case 'toggle_node': {
+                    const node = nodes.get(action.id);
+                    if (!node) return;
+                    const isHidden = node.hidden === true;
+                    const show = isHidden;
+                    nodes.update({ id: action.id, hidden: !show, physics: show });
+                    // Toggle connected edges
+                    const connEdges = network.getConnectedEdges(action.id);
+                    for (const eid of connEdges) {
+                        const edge = edges.get(eid);
+                        if (!edge) continue;
+                        if (!show) {
+                            // Hiding: hide all connected edges
+                            edges.update({ id: eid, hidden: true, physics: false });
+                        } else {
+                            // Showing: only show edge if both endpoints visible
+                            const otherId = edge.from === action.id ? edge.to : edge.from;
+                            const other = nodes.get(otherId);
+                            if (other && other.hidden !== true) {
+                                edges.update({ id: eid, hidden: false, physics: true });
+                            }
+                        }
+                    }
+                    break;
+                }
+                case 'toggle_edge': {
+                    const edge = edges.get(action.id);
+                    if (!edge) return;
+                    const isHidden = edge.hidden === true;
+                    edges.update({ id: action.id, hidden: !isHidden, physics: isHidden });
+                    break;
+                }
+                case 'restyle': {
+                    const { action: _, ...props } = action;
+                    const target = nodes.get(props.id) ? nodes : edges;
+                    target.update(props);
+                    break;
+                }
+                case 'toggle_style': {
+                    const { action: _, id, style } = action;
+                    const target = nodes.get(id) ? nodes : edges;
+                    const item = target.get(id);
+                    if (!item) return;
+                    if (item._original_style) {
+                        target.update({ id, ...item._original_style, _original_style: null });
+                    } else {
+                        const original = {};
+                        for (const key of Object.keys(style)) {
+                            original[key] = item[key];
+                        }
+                        target.update({ id, ...style, _original_style: original });
+                    }
+                    break;
+                }
+                case 'add_node': {
+                    const { action: _, ...nodeData } = action;
+                    if (!nodes.get(nodeData.id)) {
+                        if (!nodeData.label) nodeData.label = nodeData.id;
+                        nodes.add(nodeData);
+                    }
+                    break;
+                }
+                case 'remove_node': {
+                    nodes.remove(action.id);
+                    break;
+                }
+                case 'add_edge': {
+                    const { action: _, ...edgeData } = action;
+                    if (!edgeData.id) {
+                        edgeData.id = edgeData.from + '-' + (edgeData.label || '') + '-' + edgeData.to;
+                    }
+                    if (!edges.get(edgeData.id)) {
+                        edges.add(edgeData);
+                    }
+                    break;
+                }
+                case 'remove_edge': {
+                    edges.remove(action.id);
+                    break;
                 }
             }
-            lastClickTime = currentTime;
-        });
+        }
 
-        function showDeleteModal(nodeId) {
+        function executeHookActions(nodeId, eventName) {
             const node = nodes.get(nodeId);
-            vertexName.textContent = `"${node.label}"?`;
-            modal.style.display = 'block';
-            overlay.style.display = 'block';
+            if (!node) return false;
+            const actions = node['on_' + eventName];
+            if (!actions || !Array.isArray(actions)) return false;
+            for (const act of actions) {
+                executeAction(act);
+            }
+            return true;
         }
 
-        function hideDeleteModal() {
-            modal.style.display = 'none';
-            overlay.style.display = 'none';
-            selectedNode = null;
-        }
+        // ---------------------------------------------------------------
+        // Click/doubleClick dispatcher for hooks
+        // ---------------------------------------------------------------
+        let lastClickTime = 0;
+        let clickTimeout = null;
 
-        yesButton.addEventListener('click', async () => {
-            if (selectedNode) {
-                await api.removeNode(selectedNode);
-                hideDeleteModal();
+        network.on('click', function(params) {
+            if (params.nodes.length === 0) return;
+            const nodeId = params.nodes[0];
+            const now = Date.now();
+            const delta = now - lastClickTime;
+            lastClickTime = now;
+
+            if (delta < 300) {
+                // Double-click detected — cancel pending single-click
+                if (clickTimeout) { clearTimeout(clickTimeout); clickTimeout = null; }
+                executeHookActions(nodeId, 'doubleClick');
+            } else {
+                // Delay single-click to distinguish from double-click
+                clickTimeout = setTimeout(() => {
+                    clickTimeout = null;
+                    executeHookActions(nodeId, 'click');
+                }, 310);
             }
         });
-
-        noButton.addEventListener('click', hideDeleteModal);
 
         // ---------------------------------------------------------------
         // Process text into triplets
@@ -873,7 +954,60 @@
         });
 
         // ---------------------------------------------------------------
-        // Initial load from server + connect WebSocket
+        // graphVis API — exposed to extensions
+        // ---------------------------------------------------------------
+        window.graphVis = {
+            nodes,
+            edges,
+            network,
+            container: document.getElementById('graph'),
+            api,
+            get ws() { return ws; },
+            executeAction,
+            executeHookActions,
+            sendEvent(eventName, data) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ event: eventName, data: data }));
+                }
+            },
+            onCommand(commandName, handler) {
+                extCommandHandlers[commandName] = handler;
+            },
+        };
+
+        // ---------------------------------------------------------------
+        // Extension loader
+        // ---------------------------------------------------------------
+        async function loadExtensions() {
+            try {
+                const resp = await fetch('/api/extensions');
+                const { extensions } = await resp.json();
+                for (const ext of extensions) {
+                    if (ext.type === 'css') {
+                        const link = document.createElement('link');
+                        link.rel = 'stylesheet';
+                        link.href = ext.path;
+                        document.head.appendChild(link);
+                    } else if (ext.type === 'js') {
+                        await new Promise((resolve, reject) => {
+                            const script = document.createElement('script');
+                            script.src = ext.path;
+                            script.onload = resolve;
+                            script.onerror = () => {
+                                console.error('Failed to load extension:', ext.path);
+                                resolve(); // Don't block other extensions
+                            };
+                            document.body.appendChild(script);
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load extensions:', err);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Initial load from server + connect WebSocket + load extensions
         // ---------------------------------------------------------------
         async function init() {
             try {
@@ -897,6 +1031,7 @@
                 console.error('Failed to load input mode:', err);
             }
             connectWebSocket();
+            await loadExtensions();
         }
 
         init();
