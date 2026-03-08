@@ -28,6 +28,7 @@ Commands
     del-edge / de    <edge-id>             Delete edge
     list / ls / l    [nodes|edges]         List graph contents
     graph / g                              Full graph summary
+    clear                                  Clear graph to empty state
     Load / L         <filepath>            Load graph from file
     help / ? / h                           Show command reference
     quit / exit / q                        Exit REPL
@@ -101,6 +102,9 @@ class GraphClient:
                              {"subject": subject, "predicate": predicate,
                               "object": obj})
 
+    def clear_graph(self):
+        return self._request("POST", "/api/clear")
+
 
 # Converter extension mapping
 CONVERTER_MAP = {
@@ -134,14 +138,18 @@ class GraphREPL(cmd.Cmd):
     # -- Commands ----------------------------------------------------------
 
     def do_add(self, arg):
-        """add <subject> <predicate> <object> — Add a triplet (shortcut: a)"""
+        """add <from> <to> — Add labelless edge; add <subj> <pred> <obj> — Add triplet (shortcut: a)"""
         parts = arg.split()
-        if len(parts) != 3:
-            print("Usage: add <subject> <predicate> <object>")
-            return
-        r = self.client.add_triplet(*parts)
-        if r and r.get("ok"):
-            print(f"Added: {parts[0]} —{parts[1]}→ {parts[2]}")
+        if len(parts) == 2:
+            r = self.client.add_edge(parts[0], parts[1], "")
+            if r and r.get("ok"):
+                print(f"Added edge: {parts[0]} → {parts[1]}")
+        elif len(parts) == 3:
+            r = self.client.add_triplet(*parts)
+            if r and r.get("ok"):
+                print(f"Added: {parts[0]} —{parts[1]}→ {parts[2]}")
+        else:
+            print("Usage: add <from> <to>  OR  add <subject> <predicate> <object>")
 
     do_a = do_add
 
@@ -240,6 +248,12 @@ class GraphREPL(cmd.Cmd):
 
     do_g = do_graph
 
+    def do_clear(self, arg):
+        """clear — Clear graph to empty state"""
+        r = self.client.clear_graph()
+        if r and r.get("ok"):
+            print("Graph cleared.")
+
     def do_Load(self, arg):
         """Load <filepath> — Load graph from file (shortcut: L)"""
         filepath = arg.strip()
@@ -318,30 +332,33 @@ class GraphREPL(cmd.Cmd):
             super().do_help(arg)
             return
         print("""Commands:
-  add / a / +      <subj> <pred> <obj>   Add triplet
+  add / a / +      <from> <to>            Add labelless edge
+                   <subj> <pred> <obj>   Add triplet
   add-node / an    <id>                  Add single node
   add-edge / ae    <from> <pred> <to>    Add edge
   del / d / rm / - <id>                  Delete node (cascade)
   del-edge / de    <edge-id>             Delete edge
   list / ls / l    [nodes|edges]         List graph contents
   graph / g                              Full graph summary
+  clear                                  Clear graph to empty state
   Load / L         <filepath>            Load from file
   help / ? / h                           Show this help
   quit / exit / q                        Exit
 
-Shorthand: 3 bare words = add triplet (e.g. "Alice knows Bob")
+Shorthand: 2 bare words = add labelless edge (e.g. "Alice Bob")
+           3 bare words = add triplet (e.g. "Alice knows Bob")
 Formats for Load: .csv .ttl .n3 .dot .gv .mermaid .mmd""")
 
     do_h = do_help
 
     def default(self, line):
-        """Handle unrecognized commands — 3 bare words become add triplet."""
+        """Handle unrecognized commands — 2 bare words add labelless edge, 3 bare words add triplet."""
         parts = line.split()
         if parts and parts[0] == '+':
             self.do_add(' '.join(parts[1:]))
         elif parts and parts[0] == '-':
             self.do_del(' '.join(parts[1:]))
-        elif len(parts) == 3:
+        elif len(parts) in (2, 3):
             self.do_add(line)
         else:
             print(f"Unknown command: {line.split()[0] if parts else ''}")

@@ -99,6 +99,24 @@ def test_repl_default_unknown_command(capsys):
     assert "Unknown command" in out
 
 
+def test_repl_default_two_words(capsys):
+    """2 bare words should add edge without label."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "add_edge", return_value={"ok": True}):
+        repl.default("Alice Bob")
+        c.add_edge.assert_called_once_with("Alice", "Bob", "")
+
+
+def test_repl_plus_two_words(capsys):
+    """+ with 2 words should add edge without label."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    with patch.object(c, "add_edge", return_value={"ok": True}):
+        repl.default("+ Alice Bob")
+        c.add_edge.assert_called_once_with("Alice", "Bob", "")
+
+
 def test_execute_command_skips_empty():
     """Empty lines and comments are skipped."""
     c = GraphClient("127.0.0.1", 7849)
