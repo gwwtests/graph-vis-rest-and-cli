@@ -192,6 +192,40 @@ def test_multiline_jsonl_block():
         c.add_node.assert_called_once_with("X", "X", color="red")
 
 
+def test_multiline_jsonl_block_edge_extras():
+    """+++jsonl block passes edge styling extras through."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    proc = MultilineProcessor(repl)
+
+    add_node_calls = []
+    add_edge_calls = []
+    with patch.object(c, "add_node", side_effect=lambda *a, **kw: (add_node_calls.append((a, kw)), {"ok": True})[1]):
+        with patch.object(c, "add_edge", side_effect=lambda *a, **kw: (add_edge_calls.append((a, kw)), {"ok": True})[1]):
+            proc.feed("+++jsonl")
+            proc.feed('{"type":"node","id":"A","label":"Alpha","color":"blue","shape":"box"}')
+            proc.feed('{"type":"edge","from":"A","to":"B","label":"links","width":3,"dashes":true}')
+            proc.feed('{"type":"edge","from":"B","to":"C"}')
+            proc.feed("+++")
+
+    # Node extras
+    assert len(add_node_calls) == 1
+    args, kwargs = add_node_calls[0]
+    assert args == ("A", "Alpha")
+    assert kwargs == {"color": "blue", "shape": "box"}
+
+    # Edge with extras
+    assert len(add_edge_calls) == 2
+    args1, kwargs1 = add_edge_calls[0]
+    assert args1 == ("A", "B", "links")
+    assert kwargs1["width"] == 3
+    assert kwargs1["dashes"] is True
+
+    # Edge without label
+    args2, kwargs2 = add_edge_calls[1]
+    assert args2 == ("B", "C", "")
+
+
 def test_multiline_not_in_block():
     """Lines outside block return False (not consumed)."""
     c = GraphClient("127.0.0.1", 7849)
