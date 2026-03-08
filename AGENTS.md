@@ -55,6 +55,7 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | POST | `/api/clear` | — | Clear graph to empty state |
 | GET | `/api/input-mode` | — | Get current input mode `{mode}` |
 | POST | `/api/input-mode` | `{mode}` | Set input mode (multiline/single/minimal/none) |
+| GET | `/api/extensions` | — | List active extensions `{extensions: [...]}` |
 | GET | `/api/screenshot` | query params | Capture graph as PNG/JPEG (via browser) |
 | GET | `/api/dom` | — | Graph layout introspection (via browser) |
 | POST | `/api/ui` | `{input_visible}` | Toggle browser UI elements |
@@ -85,6 +86,78 @@ Browser responds:
 {"response_to": "...", "data": {...}}
 ```
 
+## Node Hooks (Declarative Interactivity)
+
+Nodes can define `on_click` and `on_doubleClick` arrays of actions in JSONL:
+
+```jsonl
+{"type":"node","id":"Root","label":"Root","on_click":[
+  {"action":"toggle_node","id":"Child1"},
+  {"action":"toggle_style","id":"Root","style":{"borderWidth":4}}
+]}
+{"type":"node","id":"Child1","label":"Child","hidden":true,"physics":false}
+{"type":"edge","from":"Root","to":"Child1","hidden":true,"physics":false}
+```
+
+### Action Types
+
+| Action | Fields | Behavior |
+|--------|--------|----------|
+| `toggle_node` | `id` | Toggle `hidden`/`physics` (show/hide with edges) |
+| `toggle_edge` | `id` | Toggle edge `hidden`/`physics` |
+| `restyle` | `id`, + props | Permanently update node/edge styling |
+| `toggle_style` | `id`, `style` | Alternate between original and given style |
+| `add_node` | `id`, `label?`, extras | Create new node (no-op if exists) |
+| `remove_node` | `id` | Remove node + connected edges |
+| `add_edge` | `from`, `to`, extras | Create new edge |
+| `remove_edge` | `id` | Remove edge |
+
+### Examples
+
+* `examples/mindmap.jsonl` — expandable mind map (click to reveal/hide subtrees)
+* `examples/styled-hooks.jsonl` — restyle vs toggle_style demonstrations
+
+## JS/CSS Extensions
+
+Load additional JavaScript and CSS from `static/extensions/` via `--ext` flag:
+
+```bash
+./graph-vis-server.py --ext color-spawner.js --ext color-spawner.css
+# or: GRAPH_VIS_EXTENSIONS=color-spawner.js,color-spawner.css ./graph-vis-server.py
+```
+
+Extensions access the graph via `window.graphVis`:
+
+```javascript
+(function(gv) {
+    gv.nodes;              // vis.DataSet
+    gv.edges;              // vis.DataSet
+    gv.network;            // vis.Network
+    gv.container;          // #graph DOM element
+    gv.api;                // REST API helper
+    gv.executeAction(act); // execute a hook action
+    gv.sendEvent(name, data);     // emit WS event (ext:<name>:<event>)
+    gv.onCommand(name, handler);  // register WS command handler
+})(window.graphVis);
+```
+
+### Bundled Extensions
+
+| Extension | Description | Demo |
+|-----------|-------------|------|
+| `delete-on-doubleclick.js` | Backward-compat double-click delete modal | `examples/demos/delete-demo.sh` |
+| `color-spawner.js/css` | HTML overlay textboxes, spawn colored children | `examples/demos/color-spawner-demo.sh` |
+| `sum-propagation.js/css` | Tree with number inputs, sum propagates up | `examples/demos/sum-propagation-demo.sh` |
+| `shortest-path.js/css` | Interactive Dijkstra with edge weight editing | `examples/demos/shortest-path-demo.sh` |
+| `random-graph.js` | Generate random connected graphs | Combinable with others |
+
+### Extension Transport Protocol
+
+Extensions communicate with external subscribers via namespaced WebSocket events:
+
+* Extension → outside: `{"event":"ext:<name>:<event>","data":{...}}`
+* Outside → extension: `{"command":"ext:<name>:<cmd>","request_id":"...","params":{...}}`
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -92,6 +165,7 @@ Browser responds:
 | `GRAPH_VIS_PORT` | `7849` | Server port |
 | `GRAPH_VIS_HOST` | `127.0.0.1` | Server IP (CLI only) |
 | `GRAPH_VIS_INPUT_MODE` | `multiline` | Initial input mode (multiline/single/minimal/none) |
+| `GRAPH_VIS_EXTENSIONS` | — | Comma-separated extension filenames |
 
 ## CLI
 
@@ -138,8 +212,8 @@ Each converter outputs an intermediate format (plain/`--csv`/`--jsonl`) and work
 ## Testing
 
 ```bash
-# Server unit tests
-PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py -v -p no:playwright
+# Server unit tests (API + WebSocket + Extensions)
+PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py tests/test_extensions.py -v -p no:playwright
 
 # CLI unit tests
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
@@ -154,18 +228,21 @@ PYTHONPATH=. pytest tests/test_jsonl2graph.py -v -p no:playwright
 ## Project Structure
 
 ```
-graph-vis-server.py                  # FastAPI server (uv run shebang)
-graph-vis-cli.py          # REPL CLI client (stdlib-only)
-static/index.html          # Frontend UI
-static/deps/               # vis-network local fallback
-tests/                     # Unit tests (pytest)
-e2e/                       # E2E tests (Docker + Selenium)
-manage                     # Docker orchestration script
-examples/                  # Example graph files (.csv, .dot, .ttl, .mermaid, .jsonl)
-scripts/converters/        # Format converter scripts
-├── csv2graph/             #   CSV → graph
-├── ttl2graph/             #   Turtle/N3 → graph
-├── dot2graph/             #   Graphviz DOT → graph
-├── mermaid2graph/         #   Mermaid → graph
-└── jsonl2graph/           #   JSONL → graph (with styling)
+graph-vis-server.py          # FastAPI server (uv run shebang)
+graph-vis-cli.py             # REPL CLI client (stdlib-only)
+static/index.html            # Frontend UI (hooks + extension loader)
+static/deps/                 # vis-network local fallback
+static/extensions/           # JS/CSS extensions (loaded via --ext)
+tests/                       # Unit tests (pytest)
+e2e/                         # E2E tests (Docker + Selenium)
+manage                       # Docker orchestration script
+examples/                    # Example graph files (.csv, .dot, .ttl, .mermaid, .jsonl)
+examples/demos/              # Demo launcher scripts for extensions
+docs/design/                 # Design documents
+scripts/converters/          # Format converter scripts
+├── csv2graph/               #   CSV → graph
+├── ttl2graph/               #   Turtle/N3 → graph
+├── dot2graph/               #   Graphviz DOT → graph
+├── mermaid2graph/           #   Mermaid → graph
+└── jsonl2graph/             #   JSONL → graph (with styling)
 ```
