@@ -1,0 +1,1 @@
+{"nodes": [{"id": "Alice", "label": "Alice"}, {"id": "Bob", "label": "Bob"}, {"id": "Charlie", "label": "Charlie"}], "edges": [{"id": "e1", "from": "Alice", "to": "Bob", "label": "knows"}, {"id": "e2", "from": "Bob", "to": "Charlie", "label": "likes"}]}
