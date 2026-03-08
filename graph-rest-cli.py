@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
-"""graph-rest-cli — Interactive REPL for the graph visualization server.
+"""graph-rest-cli — CLI for the graph visualization server.
 
-Connects to a graph-vis server via REST API and provides an interactive
-command-line interface for graph manipulation. All mutations are sent to
-the server; the server broadcasts changes to all connected WebSocket clients.
+Connects to a graph-vis server via REST API. Non-interactive by default
+(reads from stdin for easy piping). Use --repl for interactive mode.
 
 Usage
 -----
-    ./graph-rest-cli.py                        # default 127.0.0.1:7849
-    ./graph-rest-cli.py --port 9999            # custom port
-    ./graph-rest-cli.py --host 10.0.0.5 -vv   # custom host, debug verbosity
+    echo "Alice knows Bob" | ./graph-rest-cli.py       # pipe commands (default)
+    ./graph-rest-cli.py "Alice knows Bob" "g"          # positional commands
+    ./graph-rest-cli.py -i commands.txt                # read from file
+    ./graph-rest-cli.py -l data.csv "g"                # load file, then command
+    ./graph-rest-cli.py -l data.csv --repl             # load file, then REPL
+    ./graph-rest-cli.py --repl                         # interactive REPL
+    ./graph-rest-cli.py help                           # show help
+
+Environment
+-----------
+    GRAPH_VIS_HOST   Server IP (default: 127.0.0.1)
+    GRAPH_VIS_PORT   Server port (default: 7849)
 
 Commands
 --------
@@ -339,32 +347,107 @@ Formats for Load: .csv .ttl .n3 .dot .gv .mermaid .mmd""")
         pass  # Don't repeat last command
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Interactive REPL for the graph visualization server.",
+        description="CLI for the graph visualization server. "
+                    "Non-interactive by default (reads stdin). Use --repl for interactive mode.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-  %(prog)s                          Connect to 127.0.0.1:7849
-  %(prog)s --port 9999              Custom port
-  %(prog)s --host 10.0.0.5 -vv     Custom host with debug output""",
+  echo "Alice knows Bob" | %(prog)s            Pipe commands (default)
+  %(prog)s "Alice knows Bob" "g"               Positional commands
+  %(prog)s -l data.csv "g"                     Load file, run command
+  %(prog)s -l data.csv --repl                  Load file, enter REPL
+  %(prog)s --repl                              Interactive REPL
+  %(prog)s help                                Show help
+
+Environment variables:
+  GRAPH_VIS_HOST    Server IP (default: 127.0.0.1)
+  GRAPH_VIS_PORT    Server port (default: 7849)""",
     )
-    parser.add_argument("--host", default="127.0.0.1",
-                        help="Server IP (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=7849,
-                        help="Server port (default: 7849)")
+    # Connection
+    parser.add_argument("--host",
+                        default=os.environ.get("GRAPH_VIS_HOST", "127.0.0.1"),
+                        help="Server IP (env: GRAPH_VIS_HOST, default: 127.0.0.1)")
+    parser.add_argument("--port", type=int,
+                        default=int(os.environ.get("GRAPH_VIS_PORT", "7849")),
+                        help="Server port (env: GRAPH_VIS_PORT, default: 7849)")
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Increase verbosity (-v, -vv, -vvv)")
-    return parser.parse_args()
+
+    # Input modes
+    parser.add_argument("--stdin", action="store_true",
+                        help="Read commands from stdin (default when no args)")
+    parser.add_argument("-i", "--input", type=str, metavar="FILE",
+                        help="Read commands from file")
+    parser.add_argument("--repl", action="store_true",
+                        help="Enter interactive REPL mode")
+
+    # Pre-loading
+    parser.add_argument("-l", "--load", action="append", default=[],
+                        metavar="FILE",
+                        help="Load graph file before commands (repeatable)")
+
+    # Positional commands
+    parser.add_argument("commands", nargs="*",
+                        help="Commands to execute (each arg is one command)")
+
+    return parser.parse_args(argv)
+
+
+def execute_command(repl, line):
+    """Execute a single command line through the REPL command processor."""
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return
+    repl.onecmd(line)
+
+
+def load_files(repl, files):
+    """Load graph files via the Load command."""
+    for filepath in files:
+        repl.do_Load(filepath)
 
 
 def main():
     args = parse_args()
+
+    # Handle "help" as positional command
+    if args.commands == ["help"]:
+        parse_args(["--help"])
+        return
+
     client = GraphClient(args.host, args.port, args.verbose)
     repl = GraphREPL(client)
-    try:
-        repl.cmdloop()
-    except KeyboardInterrupt:
-        print("\nBye.")
+
+    # Step 1: Load files
+    if args.load:
+        load_files(repl, args.load)
+
+    # Step 2: Execute commands from chosen input mode
+    if args.commands:
+        # Positional command args
+        for cmd_line in args.commands:
+            execute_command(repl, cmd_line)
+    elif args.input:
+        # Read from file
+        with open(args.input) as f:
+            for line in f:
+                execute_command(repl, line)
+    elif args.stdin or (not args.commands and not args.repl):
+        # Read from stdin (explicit --stdin or default when no args)
+        if not sys.stdin.isatty() or args.stdin:
+            for line in sys.stdin:
+                execute_command(repl, line)
+        elif not args.repl:
+            # TTY with no args and no --repl — show help hint and enter REPL
+            args.repl = True
+
+    # Step 3: Enter REPL if requested
+    if args.repl:
+        try:
+            repl.cmdloop()
+        except KeyboardInterrupt:
+            print("\nBye.")
 
 
 if __name__ == "__main__":
