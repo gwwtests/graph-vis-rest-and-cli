@@ -1,0 +1,79 @@
+.sum-prop-overlay {
+    position: absolute;
+    pointer-events: auto;
+    z-index: 50;
+    transform: translate(-50%, 0);
+    background: rgba(30, 30, 46, 0.88);
+    border: 1px solid rgba(205, 214, 244, 0.25);
+    border-radius: 8px;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 13px;
+    color: #cdd6f4;
+}
+
+.sum-prop-input {
+    width: 60px;
+    padding: 3px 6px;
+    border: 1px solid rgba(205, 214, 244, 0.3);
+    border-radius: 5px;
+    font-family: monospace;
+    font-size: 13px;
+    outline: none;
+    background: rgba(49, 50, 68, 0.9);
+    color: #cdd6f4;
+    text-align: center;
+    -moz-appearance: textfield;
+}
+
+.sum-prop-input::-webkit-inner-spin-button,
+.sum-prop-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.sum-prop-input:focus {
+    border-color: #89b4fa;
+    box-shadow: 0 0 4px rgba(137, 180, 250, 0.4);
+}
+
+.sum-prop-value {
+    display: inline-block;
+    min-width: 40px;
+    padding: 3px 6px;
+    text-align: center;
+    font-weight: 600;
+    color: #a6e3a1;
+    background: rgba(166, 227, 161, 0.1);
+    border-radius: 5px;
+}
+
+.sum-prop-add-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 22px;
+    text-align: center;
+    background: #89b4fa;
+    color: #1e1e2e;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.15s;
+    flex-shrink: 0;
+}
+
+.sum-prop-add-btn:hover {
+    background: #74c7ec;
+}
+
+.sum-prop-add-btn:active {
+    background: #b4befe;
+}

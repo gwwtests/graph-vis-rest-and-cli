@@ -1,0 +1,26 @@
+# Styled Hooks Demo: restyle vs toggle_style
+# Demonstrates the two styling actions available in core hooks.
+# - restyle: permanently updates node/edge properties (one-way)
+# - toggle_style: alternates between original and new style on each click
+#
+# Click each node to see the effect:
+#   "Permanent Red"   — restyle: turns red permanently on click
+#   "Toggle Size"     — toggle_style: alternates between normal and large
+#   "Toggle Shape"    — toggle_style: alternates between ellipse and star
+#   "Mood Ring"       — toggle_style: alternates color between teal and pink
+#   "Self-Destruct"   — restyle: shrinks and fades on click (permanent)
+
+{"type":"node","id":"PermanentRed","label":"Permanent Red","color":{"background":"#78909C","border":"#455A64"},"shape":"box","font":{"color":"white","size":14},"on_click":[{"action":"restyle","id":"PermanentRed","color":{"background":"#F44336","border":"#B71C1C"},"font":{"color":"white","size":16,"bold":true}}]}
+
+{"type":"node","id":"ToggleSize","label":"Toggle Size","color":{"background":"#FF9800","border":"#E65100"},"shape":"box","font":{"color":"white","size":14},"on_click":[{"action":"toggle_style","id":"ToggleSize","style":{"size":40,"font":{"size":22},"borderWidth":4}}]}
+
+{"type":"node","id":"ToggleShape","label":"Toggle Shape","color":{"background":"#4CAF50","border":"#2E7D32"},"shape":"ellipse","font":{"color":"white","size":14},"on_click":[{"action":"toggle_style","id":"ToggleShape","style":{"shape":"star","color":{"background":"#CDDC39","border":"#9E9D24"},"font":{"color":"#333"}}}]}
+
+{"type":"node","id":"MoodRing","label":"Mood Ring","color":{"background":"#26A69A","border":"#00796B"},"shape":"circle","font":{"color":"white","size":14},"on_click":[{"action":"toggle_style","id":"MoodRing","style":{"color":{"background":"#EC407A","border":"#AD1457"}}}]}
+
+{"type":"node","id":"SelfDestruct","label":"Self-Destruct","color":{"background":"#7E57C2","border":"#4527A0"},"shape":"box","font":{"color":"white","size":14},"on_click":[{"action":"restyle","id":"SelfDestruct","size":5,"font":{"size":8,"color":"#ccc"},"color":{"background":"#E0E0E0","border":"#BDBDBD"},"borderWidth":1}]}
+
+{"type":"edge","from":"PermanentRed","to":"ToggleSize","label":"restyle vs toggle","color":{"color":"#90A4AE"},"width":2}
+{"type":"edge","from":"ToggleSize","to":"ToggleShape","label":"try clicking","color":{"color":"#FFB74D"},"width":2}
+{"type":"edge","from":"ToggleShape","to":"MoodRing","label":"each node","color":{"color":"#81C784"},"width":2}
+{"type":"edge","from":"MoodRing","to":"SelfDestruct","label":"to see effects","color":{"color":"#CE93D8"},"width":2}

@@ -1,0 +1,36 @@
+# Expandable Mind Map: Machine Learning
+# Uses core hooks (on_click, toggle_node, toggle_style) — no extensions needed.
+# Click "ML" root to reveal/hide category nodes. Click each category to expand leaves.
+# All children and edges start hidden; clicking toggles visibility.
+
+{"type":"node","id":"ML","label":"Machine Learning","color":{"background":"#FF9800","border":"#E65100"},"shape":"box","font":{"color":"white","size":18,"bold":true},"borderWidth":2,"on_click":[{"action":"toggle_node","id":"Supervised"},{"action":"toggle_node","id":"Unsupervised"},{"action":"toggle_node","id":"Reinforcement"},{"action":"toggle_style","id":"ML","style":{"borderWidth":4,"color":{"border":"#FFD700"}}}]}
+
+{"type":"node","id":"Supervised","label":"Supervised","hidden":true,"physics":false,"color":{"background":"#4CAF50","border":"#2E7D32"},"shape":"box","font":{"color":"white","size":15},"on_click":[{"action":"toggle_node","id":"SVM"},{"action":"toggle_node","id":"RandomForest"},{"action":"toggle_node","id":"NeuralNets"},{"action":"toggle_style","id":"Supervised","style":{"borderWidth":3,"color":{"border":"#A5D6A7"}}}]}
+{"type":"node","id":"Unsupervised","label":"Unsupervised","hidden":true,"physics":false,"color":{"background":"#2196F3","border":"#1565C0"},"shape":"box","font":{"color":"white","size":15},"on_click":[{"action":"toggle_node","id":"KMeans"},{"action":"toggle_node","id":"PCA"},{"action":"toggle_node","id":"DBSCAN"},{"action":"toggle_style","id":"Unsupervised","style":{"borderWidth":3,"color":{"border":"#90CAF9"}}}]}
+{"type":"node","id":"Reinforcement","label":"Reinforcement","hidden":true,"physics":false,"color":{"background":"#9C27B0","border":"#6A1B9A"},"shape":"box","font":{"color":"white","size":15},"on_click":[{"action":"toggle_node","id":"QLearning"},{"action":"toggle_node","id":"PolicyGradient"},{"action":"toggle_style","id":"Reinforcement","style":{"borderWidth":3,"color":{"border":"#CE93D8"}}}]}
+
+{"type":"node","id":"SVM","label":"SVM","hidden":true,"physics":false,"color":{"background":"#81C784","border":"#4CAF50"},"shape":"ellipse","font":{"size":13}}
+{"type":"node","id":"RandomForest","label":"Random Forest","hidden":true,"physics":false,"color":{"background":"#81C784","border":"#4CAF50"},"shape":"ellipse","font":{"size":13}}
+{"type":"node","id":"NeuralNets","label":"Neural Networks","hidden":true,"physics":false,"color":{"background":"#81C784","border":"#4CAF50"},"shape":"ellipse","font":{"size":13}}
+
+{"type":"node","id":"KMeans","label":"K-Means","hidden":true,"physics":false,"color":{"background":"#64B5F6","border":"#2196F3"},"shape":"ellipse","font":{"size":13}}
+{"type":"node","id":"PCA","label":"PCA","hidden":true,"physics":false,"color":{"background":"#64B5F6","border":"#2196F3"},"shape":"ellipse","font":{"size":13}}
+{"type":"node","id":"DBSCAN","label":"DBSCAN","hidden":true,"physics":false,"color":{"background":"#64B5F6","border":"#2196F3"},"shape":"ellipse","font":{"size":13}}
+
+{"type":"node","id":"QLearning","label":"Q-Learning","hidden":true,"physics":false,"color":{"background":"#BA68C8","border":"#9C27B0"},"shape":"ellipse","font":{"size":13}}
+{"type":"node","id":"PolicyGradient","label":"Policy Gradient","hidden":true,"physics":false,"color":{"background":"#BA68C8","border":"#9C27B0"},"shape":"ellipse","font":{"size":13}}
+
+{"type":"edge","from":"ML","to":"Supervised","hidden":true,"physics":false,"color":{"color":"#4CAF50"},"width":2}
+{"type":"edge","from":"ML","to":"Unsupervised","hidden":true,"physics":false,"color":{"color":"#2196F3"},"width":2}
+{"type":"edge","from":"ML","to":"Reinforcement","hidden":true,"physics":false,"color":{"color":"#9C27B0"},"width":2}
+
+{"type":"edge","from":"Supervised","to":"SVM","hidden":true,"physics":false,"color":{"color":"#81C784"}}
+{"type":"edge","from":"Supervised","to":"RandomForest","hidden":true,"physics":false,"color":{"color":"#81C784"}}
+{"type":"edge","from":"Supervised","to":"NeuralNets","hidden":true,"physics":false,"color":{"color":"#81C784"}}
+
+{"type":"edge","from":"Unsupervised","to":"KMeans","hidden":true,"physics":false,"color":{"color":"#64B5F6"}}
+{"type":"edge","from":"Unsupervised","to":"PCA","hidden":true,"physics":false,"color":{"color":"#64B5F6"}}
+{"type":"edge","from":"Unsupervised","to":"DBSCAN","hidden":true,"physics":false,"color":{"color":"#64B5F6"}}
+
+{"type":"edge","from":"Reinforcement","to":"QLearning","hidden":true,"physics":false,"color":{"color":"#BA68C8"}}
+{"type":"edge","from":"Reinforcement","to":"PolicyGradient","hidden":true,"physics":false,"color":{"color":"#BA68C8"}}

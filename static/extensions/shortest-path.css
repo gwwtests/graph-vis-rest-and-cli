@@ -1,0 +1,112 @@
+/* Shortest-path extension styles */
+
+.sp-controls {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 60;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 6px 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    font-family: sans-serif;
+    font-size: 12px;
+}
+
+.sp-controls button {
+    padding: 4px 10px;
+    font-size: 11px;
+    background: #4CAF50;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.sp-controls button:hover {
+    background: #45a049;
+}
+
+.sp-controls .sp-source-label {
+    color: #555;
+    font-size: 11px;
+    margin-right: 2px;
+}
+
+.sp-controls .sp-source-value {
+    font-weight: 600;
+    color: #333;
+    font-size: 12px;
+}
+
+.sp-controls .sp-hint {
+    color: #999;
+    font-size: 10px;
+    font-style: italic;
+}
+
+/* Edge weight edit popup */
+.sp-weight-popup {
+    position: absolute;
+    z-index: 70;
+    background: #fff;
+    border: 1px solid #aaa;
+    border-radius: 6px;
+    padding: 8px 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+    font-family: sans-serif;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sp-weight-popup label {
+    color: #555;
+    font-size: 11px;
+}
+
+.sp-weight-popup input[type="number"] {
+    width: 54px;
+    padding: 3px 5px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    font-size: 12px;
+    outline: none;
+    text-align: center;
+}
+
+.sp-weight-popup input[type="number"]:focus {
+    border-color: #4CAF50;
+}
+
+.sp-weight-popup button {
+    padding: 3px 10px;
+    font-size: 11px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.sp-weight-popup .sp-ok {
+    background: #4CAF50;
+    color: #fff;
+}
+
+.sp-weight-popup .sp-ok:hover {
+    background: #45a049;
+}
+
+.sp-weight-popup .sp-cancel {
+    background: #e0e0e0;
+    color: #333;
+}
+
+.sp-weight-popup .sp-cancel:hover {
+    background: #ccc;
+}
