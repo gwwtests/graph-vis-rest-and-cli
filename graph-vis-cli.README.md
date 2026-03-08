@@ -15,6 +15,10 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 ./graph-vis-cli.py -l examples/social-network.csv "g"
 ./graph-vis-cli.py -l data.csv -l extra.ttl "l nodes"
 
+# Store graph to file after commands
+./graph-vis-cli.py -l data.csv -s output.jsonl
+./graph-vis-cli.py -l data.csv -s graph.dot
+
 # Load file, then enter REPL
 ./graph-vis-cli.py -l examples/family-tree.dot --repl
 
@@ -53,6 +57,7 @@ echo "g" | ./graph-vis-cli.py
 | `--port PORT` | Server port (env: `GRAPH_VIS_PORT`) |
 | `-v / -vv / -vvv` | Verbosity: requests / +headers+timing / +payloads |
 | `-l, --load FILE` | Load graph file before commands (repeatable) |
+| `-s, --store FILE` | Save graph to file after commands (.jsonl .csv .dot .ttl .mermaid) |
 | `--stdin` | Read commands from stdin (also default when no args) |
 | `-i, --input FILE` | Read commands from file |
 | `--repl` | Enter interactive REPL mode |
@@ -63,7 +68,8 @@ echo "g" | ./graph-vis-cli.py
 1. Connect to server
 2. Load all `--load` files (in order)
 3. Execute commands (positional / stdin / input file)
-4. Enter REPL if `--repl` specified
+4. Store graph if `--store` specified
+5. Enter REPL if `--repl` specified
 
 ## Commands
 
@@ -78,6 +84,7 @@ echo "g" | ./graph-vis-cli.py
 | `list` / `ls` | `l` | `[nodes\|edges]` | List graph contents |
 | `graph` | `g` | — | Full graph summary |
 | `Load` | `L` | `<filepath>` | Load graph from file |
+| `store` | `Store`, `S` | `<filepath>` | Save graph to file |
 | `help` | `?`, `h` | — | Show command reference |
 | `screenshot` | `ss` | `[filename] [k=v ...]` | Save graph screenshot |
 | `dom` | — | — | Show graph layout info |
@@ -97,6 +104,30 @@ echo "g" | ./graph-vis-cli.py
 | `.dot`, `.gv` | dot2graph | stdlib |
 | `.mermaid`, `.mmd` | mermaid2graph | stdlib |
 | `.jsonl` | jsonl2graph | stdlib |
+
+## Store Format Support
+
+Save the current graph to a file. Format detected from extension (defaults to JSONL).
+
+| Extension | Converter | Lossless | Dependencies |
+|-----------|-----------|----------|-------------|
+| `.jsonl` | graph2jsonl | Yes | stdlib |
+| `.csv` | graph2csv | No | stdlib |
+| `.dot`, `.gv` | graph2dot | No | stdlib |
+| `.ttl`, `.n3` | graph2ttl | No | rdflib (via uv) |
+| `.mermaid`, `.mmd` | graph2mermaid | No | stdlib |
+
+Only JSONL preserves all node/edge properties (styling, hooks, extras). Other formats export triplets only.
+
+```bash
+# REPL usage
+store graph.jsonl          # lossless save
+store graph.csv            # CSV triplets
+store graph.dot            # Graphviz DOT
+
+# CLI flag
+./graph-vis-cli.py -l data.csv -s converted.dot
+```
 
 ## Multiline Blocks
 
