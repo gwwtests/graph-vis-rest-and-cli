@@ -175,6 +175,52 @@ def test_set_highlight_mode_invalid(client):
     assert r.status_code == 422
 
 
+def test_add_node_with_extras(client):
+    r = client.post("/api/add-node", json={
+        "id": "Styled", "label": "Styled",
+        "color": "#ff0000", "shape": "diamond",
+    })
+    assert r.status_code == 200
+    node = r.json()["node"]
+    assert node["color"] == "#ff0000"
+    assert node["shape"] == "diamond"
+    graph = client.get("/api/graph").json()
+    assert graph["nodes"][0]["color"] == "#ff0000"
+
+
+def test_add_node_with_font(client):
+    r = client.post("/api/add-node", json={
+        "id": "F", "label": "F",
+        "font": {"color": "white", "size": 18},
+    })
+    node = r.json()["node"]
+    assert node["font"] == {"color": "white", "size": 18}
+
+
+def test_add_edge_optional_label(client):
+    client.post("/api/add-node", json={"id": "A", "label": "A"})
+    client.post("/api/add-node", json={"id": "B", "label": "B"})
+    r = client.post("/api/add-edge", json={"from": "A", "to": "B"})
+    assert r.status_code == 200
+    edge = r.json()["edge"]
+    assert edge["label"] == ""
+    assert edge["id"] == "A--B"
+
+
+def test_add_edge_with_extras(client):
+    client.post("/api/add-node", json={"id": "A", "label": "A"})
+    client.post("/api/add-node", json={"id": "B", "label": "B"})
+    r = client.post("/api/add-edge", json={
+        "from": "A", "to": "B", "label": "likes",
+        "color": "#00ff00", "width": 3,
+    })
+    edge = r.json()["edge"]
+    assert edge["color"] == "#00ff00"
+    assert edge["width"] == 3
+    graph = client.get("/api/graph").json()
+    assert graph["edges"][0]["color"] == "#00ff00"
+
+
 def test_full_lifecycle(client):
     # Build a small graph
     client.post("/api/add-triplet", json={

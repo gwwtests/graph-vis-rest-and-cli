@@ -42,8 +42,8 @@ class GraphStore:
         self.nodes: dict[str, dict] = {}
         self.edges: dict[str, dict] = {}
 
-    def add_node(self, node_id: str, label: str) -> dict:
-        node = {"id": node_id, "label": label}
+    def add_node(self, node_id: str, label: str, **extras) -> dict:
+        node = {"id": node_id, "label": label, **extras}
         self.nodes[node_id] = node
         return node
 
@@ -59,10 +59,14 @@ class GraphStore:
         return removed_edges
 
     def add_edge(self, edge_from: str, edge_to: str, label: str,
-                 edge_id: Optional[str] = None) -> dict:
+                 edge_id: Optional[str] = None, **extras) -> dict:
         if edge_id is None:
-            edge_id = f"{edge_from}-{label}-{edge_to}"
-        edge = {"id": edge_id, "from": edge_from, "to": edge_to, "label": label}
+            if label:
+                edge_id = f"{edge_from}-{label}-{edge_to}"
+            else:
+                edge_id = f"{edge_from}--{edge_to}"
+        edge = {"id": edge_id, "from": edge_from, "to": edge_to, "label": label,
+                **extras}
         self.edges[edge_id] = edge
         return edge
 
@@ -123,6 +127,8 @@ manager = ConnectionManager()
 # ---------------------------------------------------------------------------
 
 class AddNodeRequest(BaseModel):
+    model_config = {"extra": "allow"}
+
     id: str
     label: str
 
@@ -134,10 +140,10 @@ class RemoveNodeRequest(BaseModel):
 class AddEdgeRequest(BaseModel):
     edge_from: str = Field(alias="from")
     edge_to: str = Field(alias="to")
-    label: str
+    label: str = ""
     id: Optional[str] = None
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "allow"}
 
 
 class RemoveEdgeRequest(BaseModel):
@@ -188,7 +194,8 @@ async def get_graph():
 
 @app.post("/api/add-node")
 async def add_node(req: AddNodeRequest):
-    node = store.add_node(req.id, req.label)
+    extras = req.model_extra or {}
+    node = store.add_node(req.id, req.label, **extras)
     await manager.broadcast({"event": "add-node", "data": node})
     return {"ok": True, "node": node}
 
@@ -205,7 +212,8 @@ async def remove_node(req: RemoveNodeRequest):
 
 @app.post("/api/add-edge")
 async def add_edge(req: AddEdgeRequest):
-    edge = store.add_edge(req.edge_from, req.edge_to, req.label, req.id)
+    extras = req.model_extra or {}
+    edge = store.add_edge(req.edge_from, req.edge_to, req.label, req.id, **extras)
     await manager.broadcast({"event": "add-edge", "data": edge})
     return {"ok": True, "edge": edge}
 
