@@ -122,9 +122,19 @@ def convert(source: str) -> tuple[set, list[tuple]]:
     vertices: set[str] = set()
     edges: list[tuple[str, str, str]] = []
 
-    for raw_line in source.splitlines():
+    # Strip C/C++ style comments before parsing.
+    text = re.sub(r"/\*.*?\*/", " ", source, flags=re.DOTALL)
+    text = re.sub(r"//[^\n]*", "", text)
+
+    # Normalize: split on semicolons and braces so that each statement
+    # ends up on its own line, even when the entire graph is one line.
+    text = text.replace("{", "\n")
+    text = text.replace("}", "\n")
+    text = text.replace(";", "\n")
+
+    for raw_line in text.splitlines():
         line = raw_line.strip()
-        if not line or line == "{" or line == "}":
+        if not line:
             continue
 
         # Skip lines that start with a DOT keyword followed by optional
