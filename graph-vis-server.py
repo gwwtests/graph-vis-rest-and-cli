@@ -18,10 +18,23 @@ from typing import Optional
 
 import base64
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
+
+
+# ---------------------------------------------------------------------------
+# Read-only mode — blocks all mutation endpoints
+# ---------------------------------------------------------------------------
+
+server_flags = {"read_only": False}
+
+
+def require_writable():
+    """Raise 403 if server is in read-only mode."""
+    if server_flags["read_only"]:
+        raise HTTPException(status_code=403, detail="Server is in read-only mode")
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +44,7 @@ from pydantic import BaseModel, Field, field_validator
 VALID_HIGHLIGHT_MODES = ("none", "fade", "pulse", "glow")
 
 highlight_settings: dict = {
-    "mode": "none",
+    "mode": "fade",
     "fadeDuration": 3000,
     "highlightColor": "#FFD700",
     "highlightEdgeColor": "#FF6B35",
@@ -45,7 +58,7 @@ highlight_settings: dict = {
 VALID_INPUT_MODES = ("multiline", "single", "minimal", "none")
 
 input_mode_settings: dict = {
-    "mode": os.environ.get("GRAPH_VIS_INPUT_MODE", "multiline"),
+    "mode": os.environ.get("GRAPH_VIS_INPUT_MODE", "minimal"),
 }
 
 
@@ -260,6 +273,7 @@ async def get_graph():
 
 @app.post("/api/add-node")
 async def add_node(req: AddNodeRequest):
+    require_writable()
     extras = req.model_extra or {}
     node = store.add_node(req.id, req.label, **extras)
     await manager.broadcast({"event": "add-node", "data": node})
@@ -268,6 +282,7 @@ async def add_node(req: AddNodeRequest):
 
 @app.post("/api/remove-node")
 async def remove_node(req: RemoveNodeRequest):
+    require_writable()
     removed_edges = store.remove_node(req.id)
     await manager.broadcast({
         "event": "remove-node",
@@ -278,6 +293,7 @@ async def remove_node(req: RemoveNodeRequest):
 
 @app.post("/api/add-edge")
 async def add_edge(req: AddEdgeRequest):
+    require_writable()
     extras = req.model_extra or {}
     edge = store.add_edge(req.edge_from, req.edge_to, req.label, req.id, **extras)
     await manager.broadcast({"event": "add-edge", "data": edge})
@@ -286,6 +302,7 @@ async def add_edge(req: AddEdgeRequest):
 
 @app.post("/api/remove-edge")
 async def remove_edge(req: RemoveEdgeRequest):
+    require_writable()
     removed = store.remove_edge(req.id)
     await manager.broadcast({"event": "remove-edge", "data": {"id": req.id}})
     return {"ok": True, "removed": removed}
@@ -293,6 +310,7 @@ async def remove_edge(req: RemoveEdgeRequest):
 
 @app.post("/api/clear")
 async def clear_graph():
+    require_writable()
     store.nodes.clear()
     store.edges.clear()
     await manager.broadcast({"event": "clear", "data": {}})
@@ -330,6 +348,11 @@ async def set_input_mode(req: InputModeRequest):
     return {"ok": True, "mode": req.mode}
 
 
+@app.get("/api/read-only")
+async def get_read_only():
+    return {"read_only": server_flags["read_only"]}
+
+
 @app.get("/api/extensions")
 async def get_extensions():
     return {"extensions": active_extensions}
@@ -337,6 +360,7 @@ async def get_extensions():
 
 @app.post("/api/add-triplet")
 async def add_triplet(req: AddTripletRequest):
+    require_writable()
     result = store.add_triplet(req.subject, req.predicate, req.object)
     await manager.broadcast({
         "event": "add-triplet",
@@ -414,6 +438,71 @@ async def set_ui(req: UIRequest):
 
 
 # ---------------------------------------------------------------------------
+# Store updates for hook actions relayed via WebSocket
+# ---------------------------------------------------------------------------
+
+def _apply_action_to_store(action: dict):
+    """Update the server-side store when a browser sends a hook action.
+
+    Mutation actions (add/remove node/edge) update the store so new clients
+    get correct state.  Visual actions (toggle, restyle) update stored
+    properties so the full graph snapshot stays consistent.
+    """
+    act = action.get("action")
+    if act == "add_node":
+        node_id = action.get("id")
+        if node_id and node_id not in store.nodes:
+            label = action.get("label", node_id)
+            extras = {k: v for k, v in action.items()
+                      if k not in ("action", "id", "label")}
+            store.add_node(node_id, label, **extras)
+    elif act == "remove_node":
+        store.remove_node(action.get("id", ""))
+    elif act == "add_edge":
+        edge_from = action.get("from")
+        edge_to = action.get("to")
+        if edge_from and edge_to:
+            label = action.get("label", "")
+            edge_id = action.get("id")
+            extras = {k: v for k, v in action.items()
+                      if k not in ("action", "from", "to", "label", "id")}
+            store.add_edge(edge_from, edge_to, label, edge_id, **extras)
+    elif act == "remove_edge":
+        store.remove_edge(action.get("id", ""))
+    elif act == "toggle_node":
+        node = store.nodes.get(action.get("id"))
+        if node:
+            show = node.get("hidden", False)
+            node["hidden"] = not show
+            node["physics"] = show
+            # Toggle connected edges
+            for edge in store.edges.values():
+                if edge["from"] == node["id"] or edge["to"] == node["id"]:
+                    if not show:
+                        edge["hidden"] = True
+                        edge["physics"] = False
+                    else:
+                        other_id = edge["to"] if edge["from"] == node["id"] else edge["from"]
+                        other = store.nodes.get(other_id)
+                        if other and not other.get("hidden", False):
+                            edge["hidden"] = False
+                            edge["physics"] = True
+    elif act == "toggle_edge":
+        edge = store.edges.get(action.get("id"))
+        if edge:
+            show = edge.get("hidden", False)
+            edge["hidden"] = not show
+            edge["physics"] = show
+    elif act == "restyle":
+        item_id = action.get("id")
+        props = {k: v for k, v in action.items() if k not in ("action",)}
+        target = store.nodes if item_id in store.nodes else store.edges
+        item = target.get(item_id)
+        if item:
+            item.update(props)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------
 
@@ -430,6 +519,17 @@ async def websocket_endpoint(websocket: WebSocket):
                     req_id = msg["response_to"]
                     if req_id in _pending_requests and not _pending_requests[req_id].done():
                         _pending_requests[req_id].set_result(msg.get("data", {}))
+                    continue
+                # Hook action relay: update store + broadcast to other clients
+                if msg.get("event") == "action":
+                    action = msg.get("data", {})
+                    _apply_action_to_store(action)
+                    for conn in list(manager.active_connections):
+                        if conn is not websocket:
+                            try:
+                                await conn.send_text(text)
+                            except Exception:
+                                manager.disconnect(conn)
                     continue
                 # Extension events: relay to all other clients
                 if "event" in msg and str(msg["event"]).startswith("ext:"):
@@ -487,9 +587,12 @@ Environment variables:
                         default=int(os.environ.get("GRAPH_VIS_PORT", "7849")),
                         help="Server port (env: GRAPH_VIS_PORT, default: 7849)")
     parser.add_argument("--input-mode",
-                        default=os.environ.get("GRAPH_VIS_INPUT_MODE", "multiline"),
+                        default=os.environ.get("GRAPH_VIS_INPUT_MODE", "minimal"),
                         choices=VALID_INPUT_MODES,
-                        help="Initial input mode (env: GRAPH_VIS_INPUT_MODE, default: multiline)")
+                        help="Initial input mode (env: GRAPH_VIS_INPUT_MODE, default: minimal)")
+    parser.add_argument("--read-only", action="store_true",
+                        default=os.environ.get("GRAPH_VIS_READ_ONLY", "").lower() in ("1", "true", "yes"),
+                        help="Read-only mode: block all mutation endpoints (env: GRAPH_VIS_READ_ONLY)")
     parser.add_argument("--ext", action="append", default=[],
                         help="Load JS/CSS extension from static/extensions/ (repeatable)")
     # Support bare "help" as positional
@@ -503,6 +606,10 @@ Environment variables:
         parser.error(f"unknown command: {args.command}")
 
     input_mode_settings["mode"] = args.input_mode
+
+    server_flags["read_only"] = args.read_only
+    if server_flags["read_only"]:
+        print("Read-only mode: mutation endpoints are disabled")
 
     # Collect extensions from --ext flags and GRAPH_VIS_EXTENSIONS env var
     ext_names = list(args.ext)

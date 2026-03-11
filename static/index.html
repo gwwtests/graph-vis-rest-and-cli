@@ -60,10 +60,15 @@
         #add-button:hover {
             background-color: #45a049;
         }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
         #graph {
             width: 100%;
-            height: 600px;
+            height: calc(100vh - 40px);
             border: 1px solid #ccc;
+            box-sizing: border-box;
         }
         #ws-status {
             position: fixed;
@@ -488,6 +493,9 @@
                 case 'input-mode':
                     setInputMode(data.mode);
                     break;
+                case 'action':
+                    executeAction(data, false);  // false = don't re-broadcast
+                    break;
             }
         }
 
@@ -699,6 +707,15 @@
         const CYCLE_MODES = ['multiline', 'single', 'minimal'];
         const CYCLE_LABELS = {multiline: '▤ Multi', single: '▬ Single', minimal: '◼ Min'};
 
+        function resizeGraph() {
+            const graphEl = document.getElementById('graph');
+            const inputEl = document.getElementById('input-container');
+            const inputVisible = inputEl && inputEl.style.display !== 'none';
+            const inputHeight = inputVisible ? inputEl.offsetHeight + 20 : 0;
+            graphEl.style.height = 'calc(100vh - ' + (40 + inputHeight) + 'px)';
+            if (typeof network !== 'undefined') network.redraw();
+        }
+
         function setInputMode(mode) {
             currentInputMode = mode;
             switch (mode) {
@@ -728,6 +745,7 @@
                     inputContainer.style.display = 'none';
                     break;
             }
+            setTimeout(resizeGraph, 10);
         }
 
         modeToggle.addEventListener('click', () => {
@@ -735,12 +753,19 @@
             const next = CYCLE_MODES[(idx + 1) % CYCLE_MODES.length];
             setInputMode(next);
         });
-        setInputMode('multiline');
+        setInputMode('minimal');
+        window.addEventListener('resize', resizeGraph);
 
         // ---------------------------------------------------------------
         // Hook action executor
         // ---------------------------------------------------------------
-        function executeAction(action) {
+        /**
+         * Execute a hook action locally, optionally broadcasting to other clients.
+         * @param {object} action - The action to execute
+         * @param {boolean} broadcast - If true, send to server for relay to other clients
+         */
+        function executeAction(action, broadcast) {
+            if (broadcast === undefined) broadcast = true;
             switch (action.action) {
                 case 'toggle_node': {
                     const node = nodes.get(action.id);
@@ -748,16 +773,13 @@
                     const isHidden = node.hidden === true;
                     const show = isHidden;
                     nodes.update({ id: action.id, hidden: !show, physics: show });
-                    // Toggle connected edges
                     const connEdges = network.getConnectedEdges(action.id);
                     for (const eid of connEdges) {
                         const edge = edges.get(eid);
                         if (!edge) continue;
                         if (!show) {
-                            // Hiding: hide all connected edges
                             edges.update({ id: eid, hidden: true, physics: false });
                         } else {
-                            // Showing: only show edge if both endpoints visible
                             const otherId = edge.from === action.id ? edge.to : edge.from;
                             const other = nodes.get(otherId);
                             if (other && other.hidden !== true) {
@@ -805,6 +827,9 @@
                     break;
                 }
                 case 'remove_node': {
+                    // Cascade-remove connected edges (like server does)
+                    const connEdges = network.getConnectedEdges(action.id);
+                    if (connEdges && connEdges.length) edges.remove(connEdges);
                     nodes.remove(action.id);
                     break;
                 }
@@ -823,6 +848,10 @@
                     break;
                 }
             }
+            // Broadcast to other clients via server relay
+            if (broadcast && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({event: 'action', data: action}));
+            }
         }
 
         function executeHookActions(nodeId, eventName) {
@@ -831,7 +860,7 @@
             const actions = node['on_' + eventName];
             if (!actions || !Array.isArray(actions)) return false;
             for (const act of actions) {
-                executeAction(act);
+                executeAction(act, true);
             }
             return true;
         }
@@ -883,17 +912,59 @@
         // ---------------------------------------------------------------
         // Input handling — server-first mutations
         // ---------------------------------------------------------------
+        function getInputText() {
+            return currentInputMode === 'multiline' ? bulkInput.value.trim() : singleInput.value.trim();
+        }
+
+        function clearInputText() {
+            if (currentInputMode === 'multiline') bulkInput.value = '';
+            else singleInput.value = '';
+        }
+
+        let serverReadOnly = false;
+
+        function handleSlashCommand(text) {
+            if (text === '/clear') {
+                if (serverReadOnly) {
+                    alert('Server is in read-only mode. /clear is disabled.');
+                } else {
+                    fetch('/api/clear', {method: 'POST'});
+                }
+                clearInputText();
+                return true;
+            }
+            if (text === '/help') {
+                const roNote = serverReadOnly ? ' (READ-ONLY mode — mutations disabled)\n\n' : '\n';
+                alert(
+                    'Commands:' + roNote +
+                    '  /clear — Clear the entire graph' +
+                        (serverReadOnly ? ' (disabled)' : '') + '\n' +
+                    '  /help — Show this help\n\n' +
+                    'Input:\n' +
+                    '  Type three words to add a triplet:\n' +
+                    '    Alice knows Bob\n\n' +
+                    '  In multiline mode, enter multiple triplets\n' +
+                    '  (one per line or space-separated).\n\n' +
+                    'Toggle input mode with the button in the top-left corner.'
+                );
+                clearInputText();
+                return true;
+            }
+            return false;
+        }
+
         async function handleInput() {
+            const text = getInputText();
+            if (handleSlashCommand(text)) return;
+
             if (currentInputMode === 'multiline') {
-                const text = bulkInput.value.trim();
                 const triplets = processText(text);
                 for (const [start, edge, end] of triplets) {
                     await api.addTriplet(start, edge, end);
                 }
                 bulkInput.value = '';
             } else {
-                const input = singleInput.value.trim();
-                const words = input.split(/\s+/);
+                const words = text.split(/\s+/);
                 if (words.length === 3) {
                     const [start, edge, end] = words.map(w => w.replace(/[;.,!?]$/, ''));
                     await api.addTriplet(start, edge, end);
@@ -985,6 +1056,12 @@
                 setInputMode(im.mode);
             } catch (err) {
                 console.error('Failed to load input mode:', err);
+            }
+            try {
+                const ro = await fetch('/api/read-only').then(r => r.json());
+                serverReadOnly = ro.read_only;
+            } catch (err) {
+                console.error('Failed to check read-only status:', err);
             }
             connectWebSocket();
             await loadExtensions();
