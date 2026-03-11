@@ -2,15 +2,21 @@
 
 ## Overview
 
-A graph visualization web app with a Python FastAPI backend. The frontend is adapted from tripleter v5 (vis-network triplet graph builder), connecting via REST + WebSocket APIs for graph mutation and multi-client sync.
+A collaborative graph visualization web app with a Python FastAPI backend. Multiple browsers, CLI clients, and API consumers can view and edit the same graph in real time. The frontend is adapted from tripleter v5 (vis-network triplet graph builder), connecting via REST + WebSocket APIs for graph mutation and multi-client sync.
 
 ## Architecture
 
 ```
-Browser (vis-network)  ←→  FastAPI server (graph-vis-server.py)  ←→  graph-vis-cli.py
-   ├── REST API: mutation requests     ├── GraphStore (in-memory)     ├── REPL commands
-   ├── WebSocket: real-time sync       ├── ConnectionManager          ├── Load from files
-   └── Static files served from /      └── Static mount (/static)    └── Format converters
+Browser A ──WS──┐
+Browser B ──WS──┤── FastAPI server (graph-vis-server.py) ──── graph-vis-cli.py
+Browser C ──WS──┘        │                                      ├── REPL commands
+  ├── REST API: mutations │                                      ├── Load from files
+  ├── WebSocket: sync     ├── GraphStore (in-memory)             └── Format converters
+  └── Hook action relay   ├── ConnectionManager
+                          └── Static mount (/static)
+
+Mutation flow: Any source → REST API → store update → WS broadcast to ALL browsers
+Action flow:   Browser X executes → WS relay → server updates store → other browsers execute
 ```
 
 ## Quick Start
@@ -38,6 +44,13 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 
 # CLI: env vars for connection
 GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
+
+# Read-only mode (viewers can explore but not modify)
+./graph-vis-server.py --read-only
+# or: GRAPH_VIS_READ_ONLY=true ./graph-vis-server.py
+
+# Collaboration: share the URL — all browsers sync in real time
+# Open http://<your-ip>:7849 on multiple devices
 ```
 
 ## API Reference
@@ -61,6 +74,7 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | GET | `/api/screenshot` | query params | Capture graph as PNG/JPEG (via browser) |
 | GET | `/api/dom` | — | Graph layout introspection (via browser) |
 | POST | `/api/ui` | `{input_visible}` | Toggle browser UI elements |
+| GET | `/api/read-only` | — | Check read-only status `{read_only: bool}` |
 
 ### WebSocket
 
@@ -75,6 +89,7 @@ Connect to `/ws`. Receives JSON broadcast events for all mutations:
 {"event": "clear", "data": {}}
 {"event": "input-mode", "data": {"mode": "minimal"}}
 {"event": "highlight-mode", "data": {"mode": "fade", ...}}
+{"event": "action", "data": {"action": "toggle_node", "id": "Alice"}}
 ```
 
 Server can also send commands to the browser and receive responses:
@@ -161,14 +176,60 @@ Extensions communicate with external subscribers via namespaced WebSocket events
 * Extension → outside: `{"event":"ext:<name>:<event>","data":{...}}`
 * Outside → extension: `{"command":"ext:<name>:<cmd>","request_id":"...","params":{...}}`
 
+## Multi-Client Collaboration
+
+Multiple browsers, CLI clients, and API consumers collaborate in real time on the same graph.
+
+### How it works
+
+* **REST mutations** (add/remove node/edge, triplet, clear) → server updates store → broadcasts to ALL connected browsers via WebSocket
+* **Hook actions** (toggle_node, restyle, add/remove via click) → browser executes locally → sends via WS → server updates store + relays to all other browsers
+* **New clients** joining get the full graph state (including colors, hidden flags) via `GET /api/graph`
+
+### Collaboration example
+
+```bash
+# Terminal 1: start server
+./graph-vis-server.py
+
+# Terminal 2: open on laptop
+xdg-open http://localhost:7849
+
+# Terminal 3: share with phone (e.g. via Tailscale)
+echo "Open http://$(tailscale ip -4):7849 on your phone"
+
+# Terminal 4: add nodes from CLI — appears on all browsers
+echo "Alice knows Bob" | ./graph-vis-cli.py
+echo "Bob likes Charlie" | ./graph-vis-cli.py
+
+# All browsers update in real time, regardless of source
+```
+
+### Browser slash commands
+
+Type in the browser text input:
+
+* `/clear` — Clear the entire graph (blocked in read-only mode)
+* `/help` — Show available commands
+
+### Read-only mode
+
+Block all mutations while allowing viewing, dragging, zoom/pan:
+
+```bash
+./graph-vis-server.py --read-only
+# Mutation endpoints return 403, browser /clear shows alert
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GRAPH_VIS_PORT` | `7849` | Server port |
 | `GRAPH_VIS_HOST` | `0.0.0.0` (server) / `127.0.0.1` (CLI) | Bind address (server) / connect address (CLI) |
-| `GRAPH_VIS_INPUT_MODE` | `multiline` | Initial input mode (multiline/single/minimal/none) |
+| `GRAPH_VIS_INPUT_MODE` | `minimal` | Initial input mode (multiline/single/minimal/none) |
 | `GRAPH_VIS_EXTENSIONS` | — | Comma-separated extension filenames |
+| `GRAPH_VIS_READ_ONLY` | — | Set to `1`/`true`/`yes` for read-only mode |
 
 ## CLI
 
@@ -272,6 +333,7 @@ examples/demos/              # Demo launcher scripts for extensions
 docs/design/                 # Design documents
 docs/plans/                  # Planning and feature roadmap documents
 docs/tutorial/               # Illustrated tutorial with screenshots
+qa/                          # QA procedures, CDP tools, screenshots
 scripts/converters/          # Format converter scripts
 ├── csv2graph/               #   CSV → graph (ingest)
 ├── ttl2graph/               #   Turtle/N3 → graph (ingest)

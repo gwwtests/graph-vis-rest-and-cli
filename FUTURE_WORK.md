@@ -12,7 +12,7 @@ graph TD
     C --> B
 
     style A fill:#4CAF50,color:white
-    style B fill:#4CAF50,color:white
+    style B fill:#808080,color:white
     style C fill:#FFC107,color:black
     style D fill:#2196F3,color:white
     style E fill:#2196F3,color:white
@@ -67,23 +67,17 @@ Related: `graph/g` command already does a one-shot graph dump via `GET /api/grap
 
 ---
 
-## 2. Read-Only View Mode
+## 2. Read-Only View Mode ✅ COMPLETED
 
-**Priority:** High | **Dependencies:** None (foundational, independent of section 1)
+**Status:** Implemented in v0.5.0
 
-Add a browser mode that disables all graph modification UI (input box, add button, delete modal) while preserving:
+Implemented as `--read-only` server flag + `GRAPH_VIS_READ_ONLY` env var:
 
-* Node dragging (repositioning)
-* Zoom and pan
-* Clicking on nodes/edges (for introspection or triggering actions)
-
-Possible implementations:
-
-* Toggle button in UI: "Edit" / "View" mode switch
-* Server-side flag: `GET /api/mode` or query param `?readonly=1`
-* CLI control: `./graph-vis-cli.py set-mode readonly` / `set-mode edit`
-
-This prevents accidental modifications when sharing the visualization with users who should only view, and is a prerequisite for using clicks as intentional UI actions (section 4).
+* All mutation endpoints return 403 in read-only mode
+* `GET /api/read-only` endpoint for frontend to check state
+* Browser `/clear` command blocked, `/help` shows read-only notice
+* Node dragging, zoom, pan still work
+* Hook actions (toggle_node, etc.) still work locally for exploration
 
 ---
 
