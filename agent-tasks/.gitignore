@@ -1,0 +1,3 @@
+# Heavy/binary fetches under any task's misc/ are not tracked; keep in//out/ text-first.
+*/misc/**
+!*/misc/.gitkeep
