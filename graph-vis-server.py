@@ -15,26 +15,86 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
+from urllib.parse import urlparse
 
 import base64
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
-# Read-only mode — blocks all mutation endpoints
+# Read-only mode + optional auth token — protect all mutation paths
 # ---------------------------------------------------------------------------
 
-server_flags = {"read_only": False}
+# read_only:        block all mutations (REST + WS) when True
+# token:            when set, require a bearer token on REST mutations and a
+#                   ?token= query param on the /ws connect (else 403 / close)
+# allowed_origins:  optional additive list of extra WS Origins to accept
+#                   (same-host is always accepted)
+server_flags: dict = {
+    "read_only": False,
+    "token": None,
+    "allowed_origins": None,
+}
+
+# Hook actions that mutate the stored graph (as opposed to pure view-state
+# toggles).  These are the ones dropped when the server is read-only.
+MUTATING_ACTIONS = frozenset(
+    {"add_node", "remove_node", "add_edge", "remove_edge", "restyle"}
+)
 
 
 def require_writable():
     """Raise 403 if server is in read-only mode."""
     if server_flags["read_only"]:
         raise HTTPException(status_code=403, detail="Server is in read-only mode")
+
+
+def require_token(authorization: Optional[str] = Header(None)):
+    """FastAPI dependency: enforce ``Authorization: Bearer <token>`` when a
+    token is configured.  No-op (backward compatible) when no token is set."""
+    token = server_flags["token"]
+    if not token:
+        return
+    if authorization != f"Bearer {token}":
+        raise HTTPException(status_code=403, detail="Invalid or missing token")
+
+
+def _ws_token_ok(websocket: WebSocket) -> bool:
+    """True if the WS connect carries the configured token (or none required)."""
+    token = server_flags["token"]
+    if not token:
+        return True
+    return websocket.query_params.get("token") == token
+
+
+def _ws_origin_allowed(websocket: WebSocket) -> bool:
+    """Reject cross-site WS connects.
+
+    * No ``Origin`` header (non-browser clients: CLI, tests) → allowed.
+    * ``Origin`` whose host:port matches the request ``Host`` → allowed.
+    * ``Origin`` present in ``GRAPH_VIS_ALLOWED_ORIGINS`` → allowed (additive).
+    * Otherwise → rejected.
+    """
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return True
+    allowed = server_flags["allowed_origins"]
+    if allowed and origin in allowed:
+        return True
+    host = websocket.headers.get("host", "")
+    return urlparse(origin).netloc == host
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +332,7 @@ async def get_graph():
 
 
 @app.post("/api/add-node")
-async def add_node(req: AddNodeRequest):
+async def add_node(req: AddNodeRequest, _auth=Depends(require_token)):
     require_writable()
     extras = req.model_extra or {}
     node = store.add_node(req.id, req.label, **extras)
@@ -281,7 +341,7 @@ async def add_node(req: AddNodeRequest):
 
 
 @app.post("/api/remove-node")
-async def remove_node(req: RemoveNodeRequest):
+async def remove_node(req: RemoveNodeRequest, _auth=Depends(require_token)):
     require_writable()
     removed_edges = store.remove_node(req.id)
     await manager.broadcast({
@@ -292,7 +352,7 @@ async def remove_node(req: RemoveNodeRequest):
 
 
 @app.post("/api/add-edge")
-async def add_edge(req: AddEdgeRequest):
+async def add_edge(req: AddEdgeRequest, _auth=Depends(require_token)):
     require_writable()
     extras = req.model_extra or {}
     edge = store.add_edge(req.edge_from, req.edge_to, req.label, req.id, **extras)
@@ -301,7 +361,7 @@ async def add_edge(req: AddEdgeRequest):
 
 
 @app.post("/api/remove-edge")
-async def remove_edge(req: RemoveEdgeRequest):
+async def remove_edge(req: RemoveEdgeRequest, _auth=Depends(require_token)):
     require_writable()
     removed = store.remove_edge(req.id)
     await manager.broadcast({"event": "remove-edge", "data": {"id": req.id}})
@@ -309,7 +369,7 @@ async def remove_edge(req: RemoveEdgeRequest):
 
 
 @app.post("/api/clear")
-async def clear_graph():
+async def clear_graph(_auth=Depends(require_token)):
     require_writable()
     store.nodes.clear()
     store.edges.clear()
@@ -353,13 +413,20 @@ async def get_read_only():
     return {"read_only": server_flags["read_only"]}
 
 
+@app.get("/api/config")
+async def get_config():
+    """Client-facing server capabilities. ``token_required`` tells the browser
+    whether it must supply a token on REST headers and the WS connect URL."""
+    return {"token_required": bool(server_flags["token"])}
+
+
 @app.get("/api/extensions")
 async def get_extensions():
     return {"extensions": active_extensions}
 
 
 @app.post("/api/add-triplet")
-async def add_triplet(req: AddTripletRequest):
+async def add_triplet(req: AddTripletRequest, _auth=Depends(require_token)):
     require_writable()
     result = store.add_triplet(req.subject, req.predicate, req.object)
     await manager.broadcast({
@@ -508,6 +575,14 @@ def _apply_action_to_store(action: dict):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    # Reject cross-site connects and missing/invalid tokens BEFORE accept()
+    # (Starlette turns a pre-accept close into an HTTP 403 handshake).
+    if not _ws_origin_allowed(websocket):
+        await websocket.close(code=1008)
+        return
+    if not _ws_token_ok(websocket):
+        await websocket.close(code=1008)
+        return
     await manager.connect(websocket)
     try:
         while True:
@@ -523,6 +598,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Hook action relay: update store + broadcast to other clients
                 if msg.get("event") == "action":
                     action = msg.get("data", {})
+                    # In read-only mode, drop mutating actions (do not apply,
+                    # do not relay).  Pure view-state toggles (toggle_node,
+                    # toggle_edge, toggle_style) are still allowed so viewers
+                    # can expand/collapse locally-shared state.
+                    if (server_flags["read_only"]
+                            and action.get("action") in MUTATING_ACTIONS):
+                        try:
+                            await websocket.send_text(
+                                json.dumps({"error": "read-only"}))
+                        except Exception:
+                            manager.disconnect(websocket)
+                        continue
                     _apply_action_to_store(action)
                     for conn in list(manager.active_connections):
                         if conn is not websocket:
@@ -578,7 +665,10 @@ if __name__ == "__main__":
 Environment variables:
   GRAPH_VIS_PORT           Server port (default: 7849)
   GRAPH_VIS_INPUT_MODE     Initial input mode (default: multiline)
-  GRAPH_VIS_EXTENSIONS     Comma-separated extension filenames""",
+  GRAPH_VIS_EXTENSIONS     Comma-separated extension filenames
+  GRAPH_VIS_READ_ONLY      Read-only mode (1/true/yes)
+  GRAPH_VIS_TOKEN          Require bearer token on mutations + WS connect
+  GRAPH_VIS_ALLOWED_ORIGINS  Comma-separated extra WS Origins to accept""",
     )
     parser.add_argument("--host",
                         default=os.environ.get("GRAPH_VIS_HOST", "0.0.0.0"),
@@ -593,6 +683,15 @@ Environment variables:
     parser.add_argument("--read-only", action="store_true",
                         default=os.environ.get("GRAPH_VIS_READ_ONLY", "").lower() in ("1", "true", "yes"),
                         help="Read-only mode: block all mutation endpoints (env: GRAPH_VIS_READ_ONLY)")
+    parser.add_argument("--token",
+                        default=os.environ.get("GRAPH_VIS_TOKEN") or None,
+                        help="Require 'Authorization: Bearer <token>' on mutation "
+                             "endpoints and '?token=<token>' on the /ws connect "
+                             "(env: GRAPH_VIS_TOKEN; unset = no auth)")
+    parser.add_argument("--allowed-origins",
+                        default=os.environ.get("GRAPH_VIS_ALLOWED_ORIGINS") or None,
+                        help="Comma-separated extra WS Origins to accept in addition "
+                             "to same-host (env: GRAPH_VIS_ALLOWED_ORIGINS)")
     parser.add_argument("--ext", action="append", default=[],
                         help="Load JS/CSS extension from static/extensions/ (repeatable)")
     # Support bare "help" as positional
@@ -610,6 +709,15 @@ Environment variables:
     server_flags["read_only"] = args.read_only
     if server_flags["read_only"]:
         print("Read-only mode: mutation endpoints are disabled")
+
+    server_flags["token"] = args.token or None
+    if server_flags["token"]:
+        print("Auth token required: mutations and /ws need the configured token")
+
+    if args.allowed_origins:
+        server_flags["allowed_origins"] = [
+            o.strip() for o in args.allowed_origins.split(",") if o.strip()
+        ]
 
     # Collect extensions from --ext flags and GRAPH_VIS_EXTENSIONS env var
     ext_names = list(args.ext)
