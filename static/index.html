@@ -3,8 +3,7 @@
 <head>
     <title>Graph Visualization</title>
     <script type="text/javascript"
-        src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/10.0.2/standalone/umd/vis-network.min.js"
-        onerror="loadLocalFallback()"></script>
+        src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/10.0.2/standalone/umd/vis-network.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/10.0.2/styles/vis-network.min.css"
         rel="stylesheet" type="text/css"
         onerror="this.href='/static/deps/vis-network.min.css'" />
@@ -119,13 +118,37 @@
     <div id="overlay" class="overlay"></div>
 
     <script>
-        // Local fallback loader for vis-network
-        function loadLocalFallback() {
+        // ---------------------------------------------------------------
+        // Boot loader: guarantee vis-network is available before the app
+        // runs. The CDN <script> above loads it normally; if that fails
+        // (offline / air-gapped / CDN blocked), we inject the vendored local
+        // copy and only then start the app. A visible error is shown only if
+        // BOTH sources fail. startApp()/showVisLoadError() are hoisted
+        // function declarations, so calling them here is safe.
+        // ---------------------------------------------------------------
+        (function bootVis() {
+            if (window.vis) { startApp(); return; }
             const s = document.createElement('script');
             s.src = '/static/deps/vis-network.min.js';
+            s.onload = function () {
+                if (window.vis) startApp();
+                else showVisLoadError();
+            };
+            s.onerror = showVisLoadError;
             document.head.appendChild(s);
+        })();
+
+        function showVisLoadError() {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+                'padding:16px;background:#c0392b;color:#fff;font-family:Arial,sans-serif;' +
+                'font-size:14px;text-align:center;';
+            div.textContent = 'Failed to load vis-network from both the CDN and the ' +
+                'local fallback (/static/deps/vis-network.min.js). The graph cannot render.';
+            (document.body || document.documentElement).appendChild(div);
         }
 
+        function startApp() {
         // ---------------------------------------------------------------
         // API integration
         // ---------------------------------------------------------------
@@ -1068,6 +1091,7 @@
         }
 
         init();
+        } // end startApp()
     </script>
 </body>
 </html>
