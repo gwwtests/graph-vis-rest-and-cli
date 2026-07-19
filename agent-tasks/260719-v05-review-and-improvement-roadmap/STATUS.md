@@ -1,8 +1,8 @@
 # STATUS — v0.5.0 review → improvement roadmap
 
-* **state:** open → dispatching
+* **state:** delivered → reviewed (mgr spot-checked F1+F6 against code: both confirmed)
 * **lead:** (graphvis:mgr)
 * **agent:** (graphvis:fable) claude-fable-5 high
-* **dispatched:** 2026-07-19
-* **deliverables expected:** out/fable/{01-review,02-architecture-assessment,03-improvement-roadmap,04-fleet-ttl-integration-judgment}.md + out-meta/*
-* **next:** mgr reads roadmap, spot-checks one finding, dispatches opus team to implement top BUILD-NOW items as feat/* branches
+* **delivered:** 2026-07-19 — out/fable/{01-review,02-architecture-assessment,03-improvement-roadmap,04-fleet-ttl-integration-judgment}.md + out-meta/fable-sources-read.md
+* **roadmap:** 8 BUILD-NOW items + 1 fleet-TTL thin-slice (#9); parallel dispatch guide in 03
+* **next:** opus team implements feat/* branches off master (worktrees); mgr reports branch list + review guide to ubertmux-adm
