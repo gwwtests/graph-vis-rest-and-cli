@@ -10,6 +10,7 @@ def reset_state():
     store.nodes.clear()
     store.edges.clear()
     manager.active_connections.clear()
+    manager.sse_queues.clear()
     highlight_settings.update({
         "mode": "none",
         "fadeDuration": 3000,

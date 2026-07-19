@@ -19,7 +19,7 @@ from typing import Optional
 import base64
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -134,8 +134,15 @@ store = GraphStore()
 # ---------------------------------------------------------------------------
 
 class ConnectionManager:
+    # Bounded queue per SSE subscriber — a stuck consumer is dropped rather
+    # than allowed to grow unboundedly and leak memory.
+    SSE_QUEUE_MAXSIZE = 100
+
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+        # Server-Sent-Events subscribers (non-browser observers, e.g. the CLI
+        # --subscribe loop). Each is a bounded asyncio.Queue of event dicts.
+        self.sse_queues: list["asyncio.Queue"] = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -152,6 +159,33 @@ class ConnectionManager:
                 await conn.send_text(text)
             except Exception:
                 self.disconnect(conn)
+        # Fan the same event out to every SSE subscriber.
+        self.sse_fan_out(message)
+
+    # -- SSE subscriber management ----------------------------------------
+
+    def sse_subscribe(self) -> "asyncio.Queue":
+        """Register a new SSE subscriber, returning its bounded queue."""
+        q: asyncio.Queue = asyncio.Queue(maxsize=self.SSE_QUEUE_MAXSIZE)
+        self.sse_queues.append(q)
+        return q
+
+    def sse_unsubscribe(self, q: "asyncio.Queue") -> None:
+        if q in self.sse_queues:
+            self.sse_queues.remove(q)
+
+    def sse_fan_out(self, message: dict) -> None:
+        """Push a message to every SSE subscriber's queue (non-blocking).
+
+        A subscriber whose queue is full is a slow/stuck consumer: drop it so
+        it cannot leak memory. Its still-open generator self-heals (unsubscribe
+        runs in the generator's ``finally`` when the client disconnects).
+        """
+        for q in list(self.sse_queues):
+            try:
+                q.put_nowait(message)
+            except asyncio.QueueFull:
+                self.sse_unsubscribe(q)
 
 
 manager = ConnectionManager()
@@ -358,6 +392,54 @@ async def get_extensions():
     return {"extensions": active_extensions}
 
 
+# ---------------------------------------------------------------------------
+# Server-Sent Events — stdlib-friendly, read-only event stream
+# ---------------------------------------------------------------------------
+
+# Heartbeat interval (seconds). Sent as an SSE comment so idle proxies/clients
+# keep the connection open without seeing a spurious event.
+SSE_HEARTBEAT_SECONDS = 15.0
+
+
+@app.get("/api/events")
+async def sse_events():
+    """Stream every broadcast event to non-browser subscribers via SSE.
+
+    Each event the server broadcasts to WebSocket clients is also written here
+    as ``data: {"event":...,"data":...}\\n\\n``. A ``: ping`` comment is sent
+    every ~15s as a heartbeat. Unlike ``/ws``, this endpoint is one-way
+    (server → subscriber) and never receives browser-command traffic, so a
+    stdlib HTTP client (e.g. the CLI ``--subscribe`` loop) can consume it.
+    """
+    queue = manager.sse_subscribe()
+
+    async def event_generator():
+        try:
+            # Initial comment flushes headers and confirms registration.
+            yield ": connected\n\n"
+            while True:
+                try:
+                    message = await asyncio.wait_for(
+                        queue.get(), timeout=SSE_HEARTBEAT_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                yield f"data: {json.dumps(message)}\n\n"
+        finally:
+            manager.sse_unsubscribe(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/add-triplet")
 async def add_triplet(req: AddTripletRequest):
     require_writable()
@@ -530,6 +612,8 @@ async def websocket_endpoint(websocket: WebSocket):
                                 await conn.send_text(text)
                             except Exception:
                                 manager.disconnect(conn)
+                    # Also surface browser-driven edits to SSE subscribers.
+                    manager.sse_fan_out(msg)
                     continue
                 # Extension events: relay to all other clients
                 if "event" in msg and str(msg["event"]).startswith("ext:"):
@@ -539,6 +623,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 await conn.send_text(text)
                             except Exception:
                                 manager.disconnect(conn)
+                    manager.sse_fan_out(msg)
                     continue
             except (json.JSONDecodeError, KeyError):
                 pass
