@@ -16,10 +16,31 @@ from selenium.webdriver.support.ui import WebDriverWait
 BASE_URL = "http://127.0.0.1:7849"
 
 
+def _load_server_app():
+    """Import the FastAPI app from the hyphenated graph-vis-server.py file.
+
+    The module name has hyphens so a plain ``import graph_vis_server`` fails;
+    load it by file path via importlib instead.
+    """
+    import importlib.util
+    import pathlib
+
+    for candidate in (
+        pathlib.Path("graph-vis-server.py"),
+        pathlib.Path(__file__).resolve().parent.parent / "graph-vis-server.py",
+    ):
+        if candidate.exists():
+            spec = importlib.util.spec_from_file_location("graph_vis_server", candidate)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module.app
+    raise FileNotFoundError("graph-vis-server.py not found")
+
+
 def _run_server():
     """Start the FastAPI server in a subprocess."""
     import uvicorn
-    from graph_vis_server import app
+    app = _load_server_app()
     uvicorn.run(app, host="0.0.0.0", port=7849, log_level="warning")
 
 
