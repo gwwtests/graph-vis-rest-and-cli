@@ -1,0 +1,24 @@
+# Synthetic fleet-topology JSONL sample (fictional names — SAFE to commit).
+# Shape mirrors `fleet_topology_tree.py -F jsonl`: node lines carry `kind` +
+# status flags, edge lines carry `rel`, plus a `drift` line. Feed through
+# scripts/converters/fleetjsonl2graph/fleetjsonl2graph.py to get graph-vis JSONL.
+{"type":"node","id":"Atlas","kind":"lead","alive":true}
+{"type":"node","id":"Beacon","kind":"coord","alive":true,"exempt":false,"workstream":"Ingest"}
+{"type":"node","id":"Cinder","kind":"coord","alive":false,"exempt":false,"workstream":null}
+{"type":"node","id":"Delta-1","kind":"session","server":"knot","cwd":"/w/ingest","windows":3,"live":true}
+{"type":"node","id":"Echo-2","kind":"session","live":false,"stale":true}
+{"type":"node","id":"Foxtrot","kind":"manager","alive":null}
+{"type":"node","id":"Gamma-sub","kind":"subteam","label":"Gamma subteam"}
+{"type":"node","id":"Beacon::ws","kind":"workstream","label":"Ingest workstream"}
+{"type":"node","id":"Harbor","kind":"worker","alive":true}
+{"type":"node","id":"Iris","kind":"terminated","alive":false}
+{"type":"node","id":"Juno-9","kind":"session","server":"loom","cwd":"/w/free","windows":1,"live":true,"uncovered":true}
+{"type":"edge","rel":"oversees","from":"Atlas","to":"Beacon"}
+{"type":"edge","rel":"oversees","from":"Atlas","to":"Cinder"}
+{"type":"edge","rel":"serves","from":"Beacon","to":"Beacon::ws"}
+{"type":"edge","rel":"coordinates","from":"Beacon","to":"Delta-1"}
+{"type":"edge","rel":"coordinates","from":"Cinder","to":"Echo-2","stale":true}
+{"type":"edge","rel":"hasManager","from":"Delta-1","to":"Foxtrot"}
+{"type":"edge","rel":"manages","from":"Foxtrot","to":"Gamma-sub"}
+{"type":"edge","rel":"member","from":"Atlas","to":"Harbor"}
+{"type":"drift","kind":"uncovered","count":1,"detail":["Juno-9 has no coordinator"],"subject":"Juno-9"}
