@@ -96,6 +96,11 @@ class GraphStore:
 
     def add_edge(self, edge_from: str, edge_to: str, label: str,
                  edge_id: Optional[str] = None, **extras) -> dict:
+        # Auto-create missing endpoint nodes (same semantics as add_triplet),
+        # so an edge is never dangling / invisible (e.g. the 2-word CLI edge).
+        for endpoint in (edge_from, edge_to):
+            if endpoint not in self.nodes:
+                self.add_node(endpoint, endpoint)
         if edge_id is None:
             if label:
                 edge_id = f"{edge_from}-{label}-{edge_to}"
@@ -295,9 +300,16 @@ async def remove_node(req: RemoveNodeRequest):
 async def add_edge(req: AddEdgeRequest):
     require_writable()
     extras = req.model_extra or {}
+    # Track which endpoint nodes add_edge will auto-create, so the broadcast
+    # payload can carry them (mirrors add-triplet's "nodes" list).
+    missing = [n for n in (req.edge_from, req.edge_to) if n not in store.nodes]
     edge = store.add_edge(req.edge_from, req.edge_to, req.label, req.id, **extras)
-    await manager.broadcast({"event": "add-edge", "data": edge})
-    return {"ok": True, "edge": edge}
+    created_nodes = [store.nodes[n] for n in missing]
+    data = dict(edge)
+    if created_nodes:
+        data["nodes"] = created_nodes
+    await manager.broadcast({"event": "add-edge", "data": data})
+    return {"ok": True, "edge": edge, "nodes": created_nodes}
 
 
 @app.post("/api/remove-edge")
@@ -500,6 +512,22 @@ def _apply_action_to_store(action: dict):
         item = target.get(item_id)
         if item:
             item.update(props)
+    elif act == "toggle_style":
+        # Mirrors static/index.html executeAction 'toggle_style': on first
+        # toggle stash the original values under _original_style and apply the
+        # given style; on the next toggle restore the originals and clear it.
+        item_id = action.get("id")
+        style = action.get("style", {}) or {}
+        target = store.nodes if item_id in store.nodes else store.edges
+        item = target.get(item_id)
+        if item:
+            if item.get("_original_style"):
+                original = item.pop("_original_style")
+                item.update(original)
+            else:
+                original = {key: item.get(key) for key in style}
+                item.update(style)
+                item["_original_style"] = original
 
 
 # ---------------------------------------------------------------------------
