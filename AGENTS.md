@@ -221,6 +221,37 @@ Block all mutations while allowing viewing, dragging, zoom/pan:
 # Mutation endpoints return 403, browser /clear shows alert
 ```
 
+## Persistence (survive restart)
+
+The in-memory graph is otherwise lost on restart. Two flags make it durable, both
+operating server-side on lossless JSONL (no HTTP round-trip):
+
+* `--load FILE` (repeatable; env `GRAPH_VIS_LOAD`, comma-separated) — parse a JSONL
+  graph file into the store at boot, using the same node/edge/triplet semantics as
+  the CLI loader (styling extras and hook actions preserved). Non-JSONL formats are
+  out of scope — convert first (see Format Converters).
+* `--autosave FILE` (env `GRAPH_VIS_AUTOSAVE`) — on every mutation (REST endpoints
+  and WebSocket hook actions), schedule a debounced (~2s) atomic write (temp file +
+  `os.replace`) of the whole graph as lossless JSONL. Bursts of edits coalesce into
+  a single write.
+
+`--autosave FILE` with no `--load` implies loading `FILE` at boot if it already
+exists — the obvious "just persist" mode:
+
+```bash
+# Persist across restarts: loads persist.jsonl if present, autosaves on every edit
+./graph-vis-server.py --autosave data/persist.jsonl
+
+# Seed from one file, autosave to another
+./graph-vis-server.py --load examples/social-network.jsonl --autosave live.jsonl
+
+# Env-var form
+GRAPH_VIS_AUTOSAVE=data/persist.jsonl ./graph-vis-server.py
+```
+
+The autosave file is itself a normal JSONL graph — loadable by the CLI
+(`./graph-vis-cli.py -l data/persist.jsonl`) and by `--load`.
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -230,6 +261,8 @@ Block all mutations while allowing viewing, dragging, zoom/pan:
 | `GRAPH_VIS_INPUT_MODE` | `minimal` | Initial input mode (multiline/single/minimal/none) |
 | `GRAPH_VIS_EXTENSIONS` | — | Comma-separated extension filenames |
 | `GRAPH_VIS_READ_ONLY` | — | Set to `1`/`true`/`yes` for read-only mode |
+| `GRAPH_VIS_LOAD` | — | Comma-separated JSONL files to load into the store at boot |
+| `GRAPH_VIS_AUTOSAVE` | — | JSONL file to debounce-autosave on every mutation |
 
 ## CLI
 

@@ -130,6 +130,126 @@ store = GraphStore()
 
 
 # ---------------------------------------------------------------------------
+# Persistence: boot-time --load + debounced JSONL autosave
+# ---------------------------------------------------------------------------
+#
+# Goal: a graph survives a server restart.  --load parses lossless JSONL into
+# the store at boot (server-side, no HTTP round-trip); --autosave debounces a
+# whole-graph JSONL write on every mutation so the file stays current.
+
+def _graph_to_jsonl(graph_data: dict) -> str:
+    """Serialize {"nodes": [...], "edges": [...]} to lossless JSONL.
+
+    Mirrors scripts/converters/graph2jsonl (stdlib) so the whole graph —
+    including styling extras and hook actions — round-trips through
+    jsonl2graph / the CLI loader.  Nodes first, then edges; no trailing newline.
+    """
+    lines = []
+    for node in graph_data.get("nodes", []):
+        obj = {"type": "node"}
+        obj.update(node)
+        lines.append(json.dumps(obj, ensure_ascii=False))
+    for edge in graph_data.get("edges", []):
+        obj = {"type": "edge"}
+        obj.update(edge)
+        lines.append(json.dumps(obj, ensure_ascii=False))
+    return "\n".join(lines)
+
+
+def load_jsonl_into_store(target: "GraphStore", path: str) -> tuple[int, int]:
+    """Parse a JSONL file into *target* using the same node/edge/triplet
+    semantics as the CLI loader (graph-vis-cli ``_process_jsonl_lines``).
+
+    Lines starting with ``#`` and blank lines are skipped.  Non-JSONL formats
+    are out of scope (convert first).  Returns ``(nodes_loaded, edges_loaded)``.
+    """
+    nodes_loaded = 0
+    edges_loaded = 0
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            obj = json.loads(line)
+            typ = obj.get("type")
+            if typ == "node":
+                node_id = obj["id"]
+                label = obj.get("label", node_id)
+                extras = {k: v for k, v in obj.items()
+                          if k not in ("type", "id", "label")}
+                target.add_node(node_id, label, **extras)
+                nodes_loaded += 1
+            elif typ == "edge":
+                frm, to = obj["from"], obj["to"]
+                label = obj.get("label", "")
+                edge_id = obj.get("id")
+                extras = {k: v for k, v in obj.items()
+                          if k not in ("type", "from", "to", "label", "id")}
+                target.add_edge(frm, to, label, edge_id, **extras)
+                edges_loaded += 1
+            elif typ == "triplet":
+                target.add_triplet(obj["subject"], obj["predicate"], obj["object"])
+                edges_loaded += 1
+    return nodes_loaded, edges_loaded
+
+
+AUTOSAVE_DEBOUNCE_SECONDS = 2.0
+
+
+class DebouncedAutosaver:
+    """Coalesce rapid mutations into a single debounced atomic JSONL write."""
+
+    def __init__(self, path: str, target: "GraphStore",
+                 delay: float = AUTOSAVE_DEBOUNCE_SECONDS):
+        self.path = path
+        self.target = target
+        self.delay = delay
+        self._task: Optional[asyncio.Task] = None
+
+    def schedule(self):
+        """(Re)start the debounce countdown to the next write.
+
+        No-op when there is no running event loop (e.g. a plain unit call);
+        use ``flush()`` to write synchronously in that case.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._task and not self._task.done():
+            self._task.cancel()
+        self._task = loop.create_task(self._debounced_write())
+
+    async def _debounced_write(self):
+        try:
+            await asyncio.sleep(self.delay)
+        except asyncio.CancelledError:
+            return
+        self.flush()
+
+    def flush(self):
+        """Write the whole graph now, atomically (temp file + os.replace)."""
+        directory = os.path.dirname(os.path.abspath(self.path))
+        os.makedirs(directory, exist_ok=True)
+        content = _graph_to_jsonl(self.target.get_full_graph())
+        tmp = f"{self.path}.tmp.{os.getpid()}"
+        with open(tmp, "w") as fh:
+            fh.write(content)
+            if content:
+                fh.write("\n")
+        os.replace(tmp, self.path)
+
+
+autosaver: Optional[DebouncedAutosaver] = None
+
+
+def trigger_autosave():
+    """Schedule a debounced autosave if autosave is configured."""
+    if autosaver is not None:
+        autosaver.schedule()
+
+
+# ---------------------------------------------------------------------------
 # WebSocket connection manager
 # ---------------------------------------------------------------------------
 
@@ -277,6 +397,7 @@ async def add_node(req: AddNodeRequest):
     extras = req.model_extra or {}
     node = store.add_node(req.id, req.label, **extras)
     await manager.broadcast({"event": "add-node", "data": node})
+    trigger_autosave()
     return {"ok": True, "node": node}
 
 
@@ -288,6 +409,7 @@ async def remove_node(req: RemoveNodeRequest):
         "event": "remove-node",
         "data": {"id": req.id, "connected_edges": removed_edges},
     })
+    trigger_autosave()
     return {"ok": True, "removed_edges": removed_edges}
 
 
@@ -297,6 +419,7 @@ async def add_edge(req: AddEdgeRequest):
     extras = req.model_extra or {}
     edge = store.add_edge(req.edge_from, req.edge_to, req.label, req.id, **extras)
     await manager.broadcast({"event": "add-edge", "data": edge})
+    trigger_autosave()
     return {"ok": True, "edge": edge}
 
 
@@ -305,6 +428,7 @@ async def remove_edge(req: RemoveEdgeRequest):
     require_writable()
     removed = store.remove_edge(req.id)
     await manager.broadcast({"event": "remove-edge", "data": {"id": req.id}})
+    trigger_autosave()
     return {"ok": True, "removed": removed}
 
 
@@ -314,6 +438,7 @@ async def clear_graph():
     store.nodes.clear()
     store.edges.clear()
     await manager.broadcast({"event": "clear", "data": {}})
+    trigger_autosave()
     return {"ok": True}
 
 
@@ -372,6 +497,7 @@ async def add_triplet(req: AddTripletRequest):
             "edge": result["edge"],
         },
     })
+    trigger_autosave()
     return {"ok": True, **result}
 
 
@@ -524,6 +650,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 if msg.get("event") == "action":
                     action = msg.get("data", {})
                     _apply_action_to_store(action)
+                    trigger_autosave()
                     for conn in list(manager.active_connections):
                         if conn is not websocket:
                             try:
@@ -578,7 +705,9 @@ if __name__ == "__main__":
 Environment variables:
   GRAPH_VIS_PORT           Server port (default: 7849)
   GRAPH_VIS_INPUT_MODE     Initial input mode (default: multiline)
-  GRAPH_VIS_EXTENSIONS     Comma-separated extension filenames""",
+  GRAPH_VIS_EXTENSIONS     Comma-separated extension filenames
+  GRAPH_VIS_LOAD           Comma-separated JSONL files to load at boot
+  GRAPH_VIS_AUTOSAVE       JSONL file to debounce-autosave on every mutation""",
     )
     parser.add_argument("--host",
                         default=os.environ.get("GRAPH_VIS_HOST", "0.0.0.0"),
@@ -595,6 +724,13 @@ Environment variables:
                         help="Read-only mode: block all mutation endpoints (env: GRAPH_VIS_READ_ONLY)")
     parser.add_argument("--ext", action="append", default=[],
                         help="Load JS/CSS extension from static/extensions/ (repeatable)")
+    parser.add_argument("--load", action="append", default=[],
+                        help="Load a JSONL graph file into the store at boot "
+                             "(repeatable; env: GRAPH_VIS_LOAD, comma-separated)")
+    parser.add_argument("--autosave", default=os.environ.get("GRAPH_VIS_AUTOSAVE") or None,
+                        help="Debounced lossless-JSONL autosave of the whole graph "
+                             "on every mutation (env: GRAPH_VIS_AUTOSAVE). Implies "
+                             "loading this file at boot if it exists and no --load given.")
     # Support bare "help" as positional
     parser.add_argument("command", nargs="?", default=None,
                         help=argparse.SUPPRESS)
@@ -631,5 +767,32 @@ Environment variables:
             })
     if active_extensions:
         print(f"Loaded extensions: {', '.join(e['path'] for e in active_extensions)}")
+
+    # ------------------------------------------------------------------
+    # Persistence: boot-time load + autosave wiring
+    # ------------------------------------------------------------------
+    # Collect --load files plus GRAPH_VIS_LOAD (comma-separated).
+    load_files = list(args.load)
+    env_load = os.environ.get("GRAPH_VIS_LOAD", "")
+    if env_load:
+        load_files.extend(p.strip() for p in env_load.split(",") if p.strip())
+
+    # --autosave with no --load implies loading the autosave file at boot
+    # (the obvious "just persist" mode) — but only if it already exists.
+    if args.autosave and not load_files and os.path.isfile(args.autosave):
+        load_files.append(args.autosave)
+
+    for path in load_files:
+        if not os.path.isfile(path):
+            parser.error(f"Load file not found: {path}")
+        try:
+            n, e = load_jsonl_into_store(store, path)
+        except (OSError, json.JSONDecodeError, KeyError) as exc:
+            parser.error(f"Failed to load {path}: {exc}")
+        print(f"Loaded {n} nodes, {e} edges from {path}")
+
+    if args.autosave:
+        autosaver = DebouncedAutosaver(args.autosave, store)
+        print(f"Autosave enabled (debounced ~{AUTOSAVE_DEBOUNCE_SECONDS:g}s): {args.autosave}")
 
     uvicorn.run(app, host=args.host, port=args.port)
