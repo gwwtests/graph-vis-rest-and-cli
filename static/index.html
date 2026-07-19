@@ -411,6 +411,20 @@
         let ws = null;
         let wsReconnectTimer = null;
 
+        // ---- Revision tracking / resync state ----
+        // currentRev: highest graph revision we have applied (-1 = not yet
+        //   synced). Every mutation event carries a rev; the snapshot from
+        //   GET /api/graph carries one too.
+        // bufferMode: while true (during a snapshot fetch), incoming events are
+        //   queued in eventBuffer instead of applied, then replayed afterwards.
+        // hasSyncedOnce: distinguishes the very first connect (nothing to
+        //   preserve) from a reconnect (preserve viewport during reload).
+        let currentRev = -1;
+        let bufferMode = false;
+        let eventBuffer = [];
+        let resyncing = false;
+        let hasSyncedOnce = false;
+
         function setWsState(state) {
             const colors = {connected: '#4CAF50', connecting: '#FFC107', disconnected: '#F44336'};
             wsStatus.style.backgroundColor = colors[state] || '#ccc';
@@ -426,6 +440,10 @@
             ws.onopen = () => {
                 setWsState('connected');
                 if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+                // Connected: (re)load the authoritative snapshot and reconcile.
+                // Events arriving during the fetch are buffered, then replayed.
+                // Preserve the viewport on reconnects (not on first sync).
+                resync(hasSyncedOnce);
             };
 
             ws.onclose = () => {
@@ -448,7 +466,33 @@
             };
         }
 
+        // Dispatch an incoming WS event. While a snapshot is loading we buffer
+        // events; otherwise we apply them with revision/gap checks.
         function handleWsEvent(msg) {
+            if (bufferMode) { eventBuffer.push(msg); return; }
+            applyWsEvent(msg);
+        }
+
+        // Apply a single event, honoring the revision counter:
+        //   - rev <= currentRev  -> already applied (or in snapshot); skip
+        //   - rev == currentRev+1 -> apply and advance
+        //   - rev  > currentRev+1 -> we missed events; resync from snapshot
+        // Events without a rev (settings such as highlight/input-mode) always
+        // apply and do not affect the counter.
+        function applyWsEvent(msg) {
+            const hasRev = typeof msg.rev === 'number';
+            if (hasRev && currentRev >= 0) {
+                if (msg.rev <= currentRev) return;                 // stale/duplicate
+                if (msg.rev > currentRev + 1) {                    // gap detected
+                    resync(true);
+                    return;
+                }
+            }
+            const applied = dispatchWsEvent(msg);
+            if (hasRev && applied && msg.rev > currentRev) currentRev = msg.rev;
+        }
+
+        function dispatchWsEvent(msg) {
             const {event, data} = msg;
             switch (event) {
                 case 'add-node':
@@ -496,6 +540,53 @@
                 case 'action':
                     executeAction(data, false);  // false = don't re-broadcast
                     break;
+                default:
+                    return false;  // unknown event: not applied
+            }
+            return true;
+        }
+
+        // Load the authoritative graph snapshot and reconcile local state.
+        // Events arriving during the fetch are buffered then replayed (only
+        // those with rev > snapshot rev). On reconnect, preserve the viewport.
+        async function resync(preserveViewport) {
+            if (resyncing) return;
+            resyncing = true;
+            bufferMode = true;
+            eventBuffer = [];
+            try {
+                const graph = await api.getGraph();
+                let view = null, scale = null;
+                if (preserveViewport && network) {
+                    try { view = network.getViewPosition(); scale = network.getScale(); }
+                    catch (e) { view = null; }
+                }
+                // Rebuild DataSets from the snapshot (simplest correct approach).
+                highlightMgr.clearAll();
+                nodes.clear();
+                edges.clear();
+                if (graph.nodes) graph.nodes.forEach(n => {
+                    nodes.add(n);
+                    highlightMgr.registerNode(n.id);
+                });
+                if (graph.edges) graph.edges.forEach(e => {
+                    edges.add(e);
+                    highlightMgr.registerEdge(e.id);
+                });
+                currentRev = (typeof graph.rev === 'number') ? graph.rev : 0;
+                if (view && network) {
+                    network.moveTo({position: view, scale: scale, animation: false});
+                }
+                hasSyncedOnce = true;
+            } catch (err) {
+                console.error('Resync failed:', err);
+            } finally {
+                bufferMode = false;
+                resyncing = false;
+                // Replay any events buffered during the fetch.
+                const pending = eventBuffer;
+                eventBuffer = [];
+                pending.forEach(m => applyWsEvent(m));
             }
         }
 
@@ -1037,13 +1128,10 @@
         // Initial load from server + connect WebSocket + load extensions
         // ---------------------------------------------------------------
         async function init() {
-            try {
-                const graph = await api.getGraph();
-                if (graph.nodes) graph.nodes.forEach(n => { if (!nodes.get(n.id)) nodes.add(n); });
-                if (graph.edges) graph.edges.forEach(e => { if (!edges.get(e.id)) edges.add(e); });
-            } catch (err) {
-                console.error('Failed to load initial graph:', err);
-            }
+            // Connect the WebSocket FIRST so no mutations are missed between
+            // the snapshot fetch and subscribing. ws.onopen triggers resync(),
+            // which loads GET /api/graph and replays any buffered events.
+            connectWebSocket();
             try {
                 const hs = await api.getHighlightMode();
                 highlightMgr.updateSettings(hs);
@@ -1063,7 +1151,6 @@
             } catch (err) {
                 console.error('Failed to check read-only status:', err);
             }
-            connectWebSocket();
             await loadExtensions();
         }
 
