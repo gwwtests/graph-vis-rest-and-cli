@@ -77,8 +77,25 @@ def _make_driver(block_cdn=False):
     return webdriver.Chrome(service=service, options=opts)
 
 
+def _set_input_mode(mode):
+    """Set the server-side input mode so the browser initializes with it.
+
+    The default mode is 'minimal', which hides the input container entirely;
+    UI-driven tests need a visible text input ('multiline' or 'single').
+    """
+    import urllib.request
+    import json
+    req = urllib.request.Request(
+        f"{BASE_URL}/api/input-mode",
+        data=json.dumps({"mode": mode}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    urllib.request.urlopen(req, timeout=5)
+
+
 @pytest.fixture
 def driver(server):
+    _set_input_mode("multiline")
     d = _make_driver()
     d.get(BASE_URL)
     yield d
@@ -160,6 +177,7 @@ def test_delete_node_via_modal(driver):
 def test_offline_cdn_fallback_boots_app(server):
     """With the CDN blocked, the local vis-network fallback must still boot the
     app: the canvas renders and a triplet can be added end-to-end."""
+    _set_input_mode("multiline")
     driver = _make_driver(block_cdn=True)
     try:
         driver.get(BASE_URL)
@@ -171,14 +189,19 @@ def test_offline_cdn_fallback_boots_app(server):
         )
         assert canvas.is_displayed()
 
-        # vis global must be defined by the local UMD build.
+        # vis global must be defined — by the local UMD build, since the CDN
+        # host is unresolvable in this test.
         assert driver.execute_script("return !!window.vis") is True
 
-        # The "both sources failed" error banner must NOT be present.
-        assert "Failed to load vis-network" not in driver.page_source
+        # The "both sources failed" error banner must NOT be present (checked
+        # via the DOM element id, not page_source — the message text also
+        # appears as a JS string literal in the inline script).
+        assert driver.execute_script(
+            "return document.getElementById('vis-load-error') === null"
+        )
 
         # Add a triplet through the UI and confirm it lands in the graph.
-        textarea = driver.find_element(By.ID, "bulk-input")
+        textarea = wait.until(EC.element_to_be_clickable((By.ID, "bulk-input")))
         textarea.clear()
         textarea.send_keys("Offline knows Fallback")
         driver.find_element(By.ID, "add-button").click()
