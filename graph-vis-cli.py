@@ -17,8 +17,16 @@ Usage
 
 Environment
 -----------
-    GRAPH_VIS_HOST   Server IP (default: 127.0.0.1)
-    GRAPH_VIS_PORT   Server port (default: 7849)
+    GRAPH_VIS_HOST      Server IP (default: 127.0.0.1)
+    GRAPH_VIS_PORT      Server port (default: 7849)
+    GRAPH_VIS_TIMEOUT   Per-request timeout in seconds (default: 10)
+
+Exit codes
+----------
+    0   All requested work succeeded.
+    1   At least one command / load / store failed (e.g. HTTP error,
+        converter error, missing file).
+    2   Every request was refused — the server is unreachable.
 
 Commands
 --------
@@ -40,6 +48,7 @@ Commands
 
 import argparse
 import cmd
+import errno
 import json
 import os
 import subprocess
@@ -53,9 +62,14 @@ import urllib.request
 class GraphClient:
     """HTTP client for the graph-vis REST API using only stdlib."""
 
-    def __init__(self, host, port, verbosity=0):
+    def __init__(self, host, port, verbosity=0, timeout=10.0):
         self.base_url = f"http://{host}:{port}"
         self.verbosity = verbosity
+        self.timeout = timeout
+        # Failure accounting for process exit codes.
+        self.requests = 0            # total requests attempted
+        self.failures = 0            # requests that did not return 2xx JSON
+        self.connection_refused = 0  # subset of failures: server unreachable
 
     def _request(self, method, path, data=None):
         url = f"{self.base_url}{path}"
@@ -65,13 +79,14 @@ class GraphClient:
             req.add_header("Content-Type", "application/json")
 
         t0 = time.time()
+        self.requests += 1
         if self.verbosity >= 1:
             print(f"  -> {method} {url}", file=sys.stderr)
         if self.verbosity >= 3 and body:
             print(f"  -> body: {body.decode()}", file=sys.stderr)
 
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 elapsed = time.time() - t0
                 resp_body = resp.read().decode()
                 if self.verbosity >= 1:
@@ -81,8 +96,28 @@ class GraphClient:
                 if self.verbosity >= 3:
                     print(f"  <- body: {resp_body}", file=sys.stderr)
                 return json.loads(resp_body)
+        except urllib.error.HTTPError as e:
+            # Server responded, but with a non-2xx status (e.g. 403 read-only).
+            self.failures += 1
+            detail = ""
+            try:
+                detail = e.read().decode().strip()
+            except Exception:
+                pass
+            print(f"HTTP {e.code} {e.reason}: {method} {path}", file=sys.stderr)
+            if detail:
+                print(f"  {detail}", file=sys.stderr)
+            return None
         except urllib.error.URLError as e:
-            print(f"Error: {e}", file=sys.stderr)
+            # Could not complete the request (connection refused, timeout, DNS).
+            self.failures += 1
+            reason = getattr(e, "reason", None)
+            if isinstance(reason, ConnectionRefusedError) or (
+                isinstance(reason, OSError) and reason.errno == errno.ECONNREFUSED
+            ):
+                self.connection_refused += 1
+            print(f"Error: {e.reason if reason is not None else e} "
+                  f"({method} {path})", file=sys.stderr)
             return None
 
     def get_graph(self):
@@ -192,6 +227,7 @@ class GraphREPL(cmd.Cmd):
         self.client = client
         self.prompt = f"graph@{client.base_url.split('//')[1]}> "
         self._multiline = MultilineProcessor(self)
+        self.json_output = False  # when True, graph/list emit raw JSON/JSONL
 
     def onecmd(self, line):
         if self._multiline.feed(line):
@@ -290,6 +326,14 @@ class GraphREPL(cmd.Cmd):
         if not graph:
             return
         what = arg.strip().lower()
+        if self.json_output:
+            if what in ("", "all", "nodes", "n"):
+                for n in graph["nodes"]:
+                    print(json.dumps({"type": "node", **n}))
+            if what in ("", "all", "edges", "e"):
+                for e in graph["edges"]:
+                    print(json.dumps({"type": "edge", **e}))
+            return
         if what in ("", "all"):
             self._print_nodes(graph["nodes"])
             self._print_edges(graph["edges"])
@@ -317,6 +361,9 @@ class GraphREPL(cmd.Cmd):
         """graph — Show full graph summary (shortcut: g)"""
         graph = self.client.get_graph()
         if not graph:
+            return
+        if self.json_output:
+            print(json.dumps(graph))
             return
         nn, ne = len(graph["nodes"]), len(graph["edges"])
         print(f"Graph: {nn} nodes, {ne} edges")
@@ -380,6 +427,7 @@ class GraphREPL(cmd.Cmd):
             return
         if not os.path.isfile(filepath):
             print(f"File not found: {filepath}")
+            self.client.failures += 1
             return
         _, ext = os.path.splitext(filepath)
         ext = ext.lower()
@@ -391,6 +439,7 @@ class GraphREPL(cmd.Cmd):
         if not converter_name:
             print(f"Unsupported format: {ext}")
             print(f"Supported: {', '.join(sorted(set(CONVERTER_MAP.values())))}")
+            self.client.failures += 1
             return
         # Find converter script
         script_dir = os.path.join(
@@ -400,15 +449,18 @@ class GraphREPL(cmd.Cmd):
         )
         if not os.path.isfile(script_dir):
             print(f"Converter not found: {script_dir}")
+            self.client.failures += 1
             return
         try:
             result = run_converter(script_dir, [filepath])
             if result.returncode != 0:
                 print(f"Converter error: {result.stderr}")
+                self.client.failures += 1
                 return
             self._load_intermediate(result.stdout, filepath, ext)
         except subprocess.TimeoutExpired:
             print("Converter timed out (60s)")
+            self.client.failures += 1
 
     do_L = do_Load
 
@@ -431,6 +483,7 @@ class GraphREPL(cmd.Cmd):
         if not converter_name:
             print(f"Unsupported export format: {ext}")
             print(f"Supported: {', '.join(sorted(set(EXPORT_MAP.values())))}")
+            self.client.failures += 1
             return
         # Find converter script
         script_path = os.path.join(
@@ -440,12 +493,14 @@ class GraphREPL(cmd.Cmd):
         )
         if not os.path.isfile(script_path):
             print(f"Converter not found: {script_path}")
+            self.client.failures += 1
             return
         graph_json = json.dumps(graph)
         try:
             result = run_converter(script_path, [], input_text=graph_json)
             if result.returncode != 0:
                 print(f"Converter error: {result.stderr}")
+                self.client.failures += 1
                 return
             with open(filepath, "w") as f:
                 f.write(result.stdout)
@@ -454,6 +509,7 @@ class GraphREPL(cmd.Cmd):
             print(f"Stored {ne} edges, {nn} nodes to {filepath} ({fmt_name})")
         except subprocess.TimeoutExpired:
             print("Converter timed out (60s)")
+            self.client.failures += 1
 
     do_Store = do_store
     do_S = do_store
@@ -708,8 +764,14 @@ Environment variables:
     parser.add_argument("--port", type=int,
                         default=int(os.environ.get("GRAPH_VIS_PORT", "7849")),
                         help="Server port (env: GRAPH_VIS_PORT, default: 7849)")
+    parser.add_argument("--timeout", type=float,
+                        default=float(os.environ.get("GRAPH_VIS_TIMEOUT", "10")),
+                        help="Per-request timeout in seconds "
+                             "(env: GRAPH_VIS_TIMEOUT, default: 10)")
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Increase verbosity (-v, -vv, -vvv)")
+    parser.add_argument("--json", action="store_true",
+                        help="Emit raw JSON/JSONL for graph/list (machine-readable)")
 
     # Input modes
     parser.add_argument("--stdin", action="store_true",
@@ -767,8 +829,9 @@ def main():
         parse_args(["--help"])
         return
 
-    client = GraphClient(args.host, args.port, args.verbose)
+    client = GraphClient(args.host, args.port, args.verbose, args.timeout)
     repl = GraphREPL(client)
+    repl.json_output = args.json
 
     # Step 1: Load files
     if args.load:
@@ -780,10 +843,16 @@ def main():
     elif args.input:
         with open(args.input) as f:
             execute_commands(repl, f)
-    elif args.stdin or (not args.commands and not args.repl):
-        if not sys.stdin.isatty() or args.stdin:
+    elif args.stdin:
+        execute_commands(repl, sys.stdin)
+    elif not args.repl:
+        # No explicit commands and no --repl. Choose based on context:
+        #   * piped stdin (not a TTY)      -> consume it as commands
+        #   * bare TTY with no other work  -> drop into the REPL
+        #   * TTY with -l/-s work queued    -> run steps and exit (no REPL)
+        if not sys.stdin.isatty():
             execute_commands(repl, sys.stdin)
-        elif not args.repl:
+        elif not args.load and not args.store:
             args.repl = True
 
     # Step 3: Store graph if requested
@@ -796,6 +865,16 @@ def main():
             repl.cmdloop()
         except KeyboardInterrupt:
             print("\nBye.")
+        return  # interactive session: no non-zero exit for command errors
+
+    # Step 5: Non-interactive exit codes.
+    #   2 = every request was refused (server unreachable)
+    #   1 = at least one command / load / store failed
+    #   0 = success
+    if client.requests and client.connection_refused == client.requests:
+        sys.exit(2)
+    if client.failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,7 @@ echo "g" | ./graph-vis-cli.py
 |----------|---------|-------------|
 | `GRAPH_VIS_HOST` | `127.0.0.1` | Server IP |
 | `GRAPH_VIS_PORT` | `7849` | Server port |
+| `GRAPH_VIS_TIMEOUT` | `10` | Per-request timeout (seconds) |
 
 ## CLI Flags
 
@@ -55,13 +56,51 @@ echo "g" | ./graph-vis-cli.py
 |------|-------------|
 | `--host HOST` | Server IP (env: `GRAPH_VIS_HOST`) |
 | `--port PORT` | Server port (env: `GRAPH_VIS_PORT`) |
+| `--timeout SECONDS` | Per-request timeout (env: `GRAPH_VIS_TIMEOUT`, default 10) |
+| `--json` | Emit raw JSON/JSONL for `graph`/`list` (machine-readable, for piping) |
 | `-v / -vv / -vvv` | Verbosity: requests / +headers+timing / +payloads |
 | `-l, --load FILE` | Load graph file before commands (repeatable) |
 | `-s, --store FILE` | Save graph to file after commands (.jsonl .csv .dot .ttl .mermaid) |
-| `--stdin` | Read commands from stdin (also default when no args) |
+| `--stdin` | Read commands from stdin (also default when piped) |
 | `-i, --input FILE` | Read commands from file |
 | `--repl` | Enter interactive REPL mode |
 | `-h, --help` | Show help |
+
+## Exit Codes
+
+Non-interactive runs (i.e. without `--repl`) report success via the process
+exit code, so scripts and agents can react to failures:
+
+| Code | Meaning |
+|------|---------|
+| `0` | All requested work succeeded |
+| `1` | At least one command / load / store failed (e.g. HTTP error, converter error, missing file) |
+| `2` | Every request was refused — the server is unreachable |
+
+HTTP errors (such as the `403` returned in read-only mode) print the status
+line plus the server's response detail to stderr; connection failures print the
+underlying reason. `--repl` sessions always exit `0`.
+
+## Machine-Readable Output (`--json`)
+
+```bash
+# Full graph as a single JSON object
+./graph-vis-cli.py --json "g" | jq '.nodes | length'
+
+# Nodes and edges as JSONL (one object per line), re-loadable as .jsonl
+./graph-vis-cli.py --json "ls" > graph.jsonl
+./graph-vis-cli.py --json "ls nodes"   # only nodes
+```
+
+`--json` only changes the output of `graph`/`g` and `list`/`ls`/`l`; other
+commands are unaffected.
+
+## Non-Interactive vs REPL
+
+The CLI runs non-interactively and exits unless you ask for the REPL. It only
+drops into the interactive REPL when `--repl` is given, or when invoked bare on
+a terminal with no work queued. In particular, `-l FILE -s FILE` with no
+commands runs the load/store steps and exits (it does **not** open the REPL).
 
 ## Execution Order
 

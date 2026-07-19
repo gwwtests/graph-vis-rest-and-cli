@@ -560,3 +560,125 @@ def test_ttl_converter_runs_via_uv_shebang(tmp_path):
     assert result.returncode == 0, result.stderr
     # Intermediate format: header line "<nodes> <edges>" then triplets
     assert "Alice" in result.stdout and "Bob" in result.stdout
+
+
+# ===========================================================================
+# Exit codes, request timeout, --json output, non-interactive correctness
+# ===========================================================================
+
+
+def test_parse_args_json_flag():
+    assert parse_args(["--json"]).json is True
+    assert parse_args([]).json is False
+
+
+def test_parse_args_timeout_flag():
+    assert parse_args(["--timeout", "5"]).timeout == 5.0
+    assert parse_args([]).timeout == 10.0
+
+
+def test_parse_args_timeout_env():
+    with patch.dict(os.environ, {"GRAPH_VIS_TIMEOUT": "3.5"}):
+        assert parse_args([]).timeout == 3.5
+
+
+def test_client_timeout_stored():
+    c = GraphClient("127.0.0.1", 7849, timeout=7)
+    assert c.timeout == 7
+
+
+def test_json_graph_output(capsys):
+    """--json: graph emits the raw /api/graph JSON object."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    repl.json_output = True
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        repl.do_graph("")
+    out = capsys.readouterr().out.strip()
+    assert json.loads(out) == SAMPLE_GRAPH
+
+
+def test_json_list_output(capsys):
+    """--json: list emits one JSON object per node/edge (JSONL)."""
+    c = GraphClient("127.0.0.1", 7849)
+    repl = GraphREPL(c)
+    repl.json_output = True
+    with patch.object(c, "get_graph", return_value=SAMPLE_GRAPH):
+        repl.do_list("")
+    lines = [l for l in capsys.readouterr().out.splitlines() if l.strip()]
+    objs = [json.loads(l) for l in lines]
+    assert len(objs) == 3  # 2 nodes + 1 edge
+    types = [o["type"] for o in objs]
+    assert types.count("node") == 2
+    assert types.count("edge") == 1
+
+
+def test_client_counts_http_error_failure():
+    """HTTPError (e.g. 403 read-only) is counted as a failure, not refused."""
+    import io
+    import urllib.error
+    c = GraphClient("127.0.0.1", 7849)
+    err = urllib.error.HTTPError(
+        "http://x/api/clear", 403, "Forbidden", {}, io.BytesIO(b'{"detail":"read-only"}'))
+    with patch("graph_vis_cli.urllib.request.urlopen", side_effect=err):
+        assert c.clear_graph() is None
+    assert c.requests == 1
+    assert c.failures == 1
+    assert c.connection_refused == 0
+
+
+def test_client_counts_connection_refused():
+    """Connection-refused increments both failures and connection_refused."""
+    import urllib.error
+    c = GraphClient("127.0.0.1", 7849)
+    err = urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+    with patch("graph_vis_cli.urllib.request.urlopen", side_effect=err):
+        assert c.get_graph() is None
+    assert c.requests == 1
+    assert c.failures == 1
+    assert c.connection_refused == 1
+
+
+CLI_PATH = os.path.join(os.path.dirname(__file__), "..", "graph-vis-cli.py")
+
+
+def _free_port():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def test_cli_exit_nonzero_on_dead_port():
+    """CLI must exit non-zero when the server is unreachable."""
+    port = _free_port()  # bound then released -> nothing listening
+    env = {**os.environ, "GRAPH_VIS_HOST": "127.0.0.1",
+           "GRAPH_VIS_PORT": str(port), "GRAPH_VIS_TIMEOUT": "2"}
+    proc = subprocess.run(
+        [sys.executable, CLI_PATH, "Alice knows Bob"],
+        env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode != 0
+    # All requests refused -> exit 2 specifically.
+    assert proc.returncode == 2
+
+
+def test_no_repl_when_load_store_on_tty(tmp_path, monkeypatch):
+    """-l/-s with no commands on a TTY must run steps and exit, not REPL."""
+    import graph_vis_cli
+    data = tmp_path / "in.jsonl"
+    data.write_text(json.dumps({"type": "node", "id": "A", "label": "A"}) + "\n")
+    out = tmp_path / "out.jsonl"
+    port = _free_port()
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--port", str(port), "--timeout", "2",
+                         "-l", str(data), "-s", str(out)])
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    entered = {"repl": False}
+    monkeypatch.setattr(graph_vis_cli.GraphREPL, "cmdloop",
+                        lambda self: entered.__setitem__("repl", True))
+    with pytest.raises(SystemExit):
+        graph_vis_cli.main()
+    assert entered["repl"] is False
