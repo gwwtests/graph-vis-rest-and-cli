@@ -62,7 +62,7 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | GET | `/api/graph` | — | Full graph `{nodes: [...], edges: [...]}` |
 | POST | `/api/add-node` | `{id, label, ...extras}` | Add a node (extras: vis-network styling) |
 | POST | `/api/remove-node` | `{id}` | Remove node + connected edges |
-| POST | `/api/add-edge` | `{from, to, label?, id?, ...extras}` | Add an edge (label optional, extras: styling) |
+| POST | `/api/add-edge` | `{from, to, label?, id?, ...extras}` | Add an edge (label optional, extras: styling). Missing endpoint nodes are auto-created (like `add-triplet`); the broadcast payload carries any created `nodes: [...]` |
 | POST | `/api/remove-edge` | `{id}` | Remove an edge |
 | POST | `/api/add-triplet` | `{subject, predicate, object}` | Add subject→predicate→object |
 | POST | `/api/clear` | — | Clear graph to empty state |
@@ -83,7 +83,7 @@ Connect to `/ws`. Receives JSON broadcast events for all mutations:
 ```json
 {"event": "add-node", "data": {"id": "Alice", "label": "Alice"}}
 {"event": "remove-node", "data": {"id": "Alice", "connected_edges": ["Alice-knows-Bob"]}}
-{"event": "add-edge", "data": {"id": "A-knows-B", "from": "A", "to": "B", "label": "knows"}}
+{"event": "add-edge", "data": {"id": "A-knows-B", "from": "A", "to": "B", "label": "knows", "nodes": [...]}}
 {"event": "remove-edge", "data": {"id": "A-knows-B"}}
 {"event": "add-triplet", "data": {"subject": "A", "predicate": "knows", "object": "B", "nodes": [...], "edges": [...]}}
 {"event": "clear", "data": {}}
@@ -129,6 +129,19 @@ Nodes can define `on_click` and `on_doubleClick` arrays of actions in JSONL:
 | `remove_node` | `id` | Remove node + connected edges |
 | `add_edge` | `from`, `to`, extras | Create new edge |
 | `remove_edge` | `id` | Remove edge |
+
+### Action parity (server ⇄ frontend)
+
+Every action type is interpreted **twice** and the two must stay in lock-step:
+
+* server-side by `_apply_action_to_store` in `graph-vis-server.py` — so
+  late-joining clients get correct state from `GET /api/graph`
+* client-side by `executeAction` in `static/index.html` — the live vis-network view
+
+`toggle_style` stashes the pre-toggle values under `_original_style` and swaps
+back on the next toggle, identically on both sides. The shared contract is pinned
+by `tests/test_actions.py` (server-side, via the WS relay path); full JS-side
+automation lives in the e2e suite.
 
 ### Examples
 
@@ -298,8 +311,8 @@ All converters work as both CLI tools and importable libraries. Only JSONL is lo
 ## Testing
 
 ```bash
-# Server unit tests (API + WebSocket + Extensions)
-PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py tests/test_extensions.py -v -p no:playwright
+# Server unit tests (API + WebSocket + Extensions + Actions)
+PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py tests/test_extensions.py tests/test_actions.py -v -p no:playwright
 
 # CLI unit tests (includes store command tests)
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
