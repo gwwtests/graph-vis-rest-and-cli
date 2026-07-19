@@ -42,11 +42,32 @@ Hybrid: use `getPositions()` to get exact node coordinates from vis-network, the
 
 ---
 
-## 1. CLI Subscribe Mode
+## 1. CLI Subscribe Mode ✅ COMPLETED
 
-**Priority:** High | **Dependencies:** None (foundational)
+**Status:** Implemented — server SSE endpoint + CLI `--subscribe`.
 
-Add a CLI mode to subscribe to real-time graph mutation events via WebSocket. The CLI would connect to `/ws` and print events as they arrive (JSON or human-readable).
+Delivered via a **Server-Sent-Events** transport rather than `/ws`: a stdlib
+WebSocket client is impractical, and letting non-browser subscribers onto `/ws`
+would break the server's browser-command assumptions. Instead:
+
+* Server: `GET /api/events` (`text/event-stream`) fans every broadcast event
+  (plus browser `action`/`ext:` relays) to each subscriber as `data: {...}`,
+  with a `: ping` heartbeat every ~15s and a bounded per-subscriber queue that
+  drops slow consumers (no memory leak). `/ws` is untouched.
+* CLI: `--subscribe [--format jsonl|human]` streams `/api/events` via
+  `urllib`, one line per event; Ctrl-C exits 0; implies no REPL.
+
+```bash
+./graph-vis-cli.py --subscribe                 # human-readable
+./graph-vis-cli.py --subscribe --format jsonl  # raw JSON per line
+```
+
+Tests: `tests/test_sse.py` (server stream) + subscribe/format cases in
+`tests/test_cli.py`.
+
+<details><summary>Original plan (for reference)</summary>
+
+Add a CLI mode to subscribe to real-time graph mutation events. The CLI would print events as they arrive (JSON or human-readable).
 
 ```bash
 # Stream updates as they happen
@@ -64,6 +85,8 @@ Use cases:
 * Foundation for CLI-driven reactive workflows (sections 4-6)
 
 Related: `graph/g` command already does a one-shot graph dump via `GET /api/graph`. The subscribe mode adds continuous streaming.
+
+</details>
 
 ---
 

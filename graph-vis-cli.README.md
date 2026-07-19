@@ -28,6 +28,10 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 # Interactive REPL
 ./graph-vis-cli.py --repl
 
+# Subscribe: stream live graph events until Ctrl-C
+./graph-vis-cli.py --subscribe                 # human-readable
+./graph-vis-cli.py --subscribe --format jsonl  # raw JSON per line
+
 # Help
 ./graph-vis-cli.py help
 ./graph-vis-cli.py -h
@@ -61,6 +65,8 @@ echo "g" | ./graph-vis-cli.py
 | `--stdin` | Read commands from stdin (also default when no args) |
 | `-i, --input FILE` | Read commands from file |
 | `--repl` | Enter interactive REPL mode |
+| `--subscribe` | Stream graph events from `/api/events` (SSE) until Ctrl-C; implies no REPL |
+| `--format jsonl\|human` | Output format for `--subscribe` (default: `human`) |
 | `-h, --help` | Show help |
 
 ## Execution Order
@@ -69,7 +75,39 @@ echo "g" | ./graph-vis-cli.py
 2. Load all `--load` files (in order)
 3. Execute commands (positional / stdin / input file)
 4. Store graph if `--store` specified
-5. Enter REPL if `--repl` specified
+5. Subscribe stream if `--subscribe` specified (long-running; implies no REPL)
+6. Enter REPL if `--repl` specified
+
+## Subscribe Mode
+
+`--subscribe` opens a live [Server-Sent-Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
+stream over `GET /api/events` and prints one line per graph event as it happens
+— from any source (other CLIs, REST calls, browser clicks). Uses only stdlib
+(`urllib` streaming); no WebSocket client required. Ctrl-C exits cleanly (0).
+
+```bash
+# Terminal 1: watch
+./graph-vis-cli.py --subscribe
+
+# Terminal 2: mutate — appears live in terminal 1
+echo "Alice knows Bob" | ./graph-vis-cli.py
+```
+
+`--format human` (default) prints terse lines:
+
+```
++ triplet Alice knows Bob
++ node Carol
+- edge Alice-knows-Bob
+clear
+```
+
+`--format jsonl` prints the raw event JSON per line (pipe to `jq`):
+
+```bash
+./graph-vis-cli.py --subscribe --format jsonl | jq '.event'
+```
+
 
 ## Commands
 

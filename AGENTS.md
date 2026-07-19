@@ -69,6 +69,7 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | GET | `/api/input-mode` | — | Get current input mode `{mode}` |
 | POST | `/api/input-mode` | `{mode}` | Set input mode (multiline/single/minimal/none) |
 | GET | `/api/extensions` | — | List active extensions `{extensions: [...]}` |
+| GET | `/api/events` | — | Server-Sent-Events stream of all broadcast events (see below) |
 | GET | `/api/highlight-mode` | — | Get current highlight settings |
 | POST | `/api/highlight-mode` | `{mode?, fadeDuration?, ...}` | Set highlight mode (fade/pulse/glow) |
 | GET | `/api/screenshot` | query params | Capture graph as PNG/JPEG (via browser) |
@@ -102,6 +103,39 @@ Browser responds:
 
 ```json
 {"response_to": "...", "data": {...}}
+```
+
+### Server-Sent Events (`GET /api/events`)
+
+A one-way, stdlib-friendly event stream for **non-browser** subscribers (the CLI
+`--subscribe` loop, scripts, `curl`). Every event the server broadcasts to
+WebSocket clients — plus browser-driven `action` and `ext:` relays — is also
+written here as an SSE frame:
+
+```
+: connected
+
+data: {"event":"add-node","data":{"id":"Alice","label":"Alice"}}
+
+data: {"event":"add-triplet","data":{"subject":"A","predicate":"knows","object":"B", ...}}
+
+: ping
+```
+
+* `data:` lines carry the same JSON event objects as `/ws` (a `rev` field is
+  included when present).
+* `: ping` comments are sent every ~15s as a heartbeat.
+* Each subscriber has a **bounded** queue; a slow/stuck consumer is dropped so
+  it cannot leak server memory.
+* Unlike `/ws`, this endpoint never receives browser-command traffic, so a
+  plain streaming HTTP client can consume it safely. `/ws` is unchanged.
+
+```bash
+# Observe with curl
+curl -N http://localhost:7849/api/events
+
+# Observe with the CLI (see CLI section)
+./graph-vis-cli.py --subscribe
 ```
 
 ## Node Hooks (Declarative Interactivity)
@@ -247,6 +281,10 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 
 # Interactive REPL
 ./graph-vis-cli.py --repl
+
+# Subscribe: stream graph events live (Ctrl-C to stop)
+./graph-vis-cli.py --subscribe                 # human-readable lines
+./graph-vis-cli.py --subscribe --format jsonl  # raw JSON per line (pipe to jq)
 ```
 
 ```bash
@@ -261,7 +299,9 @@ echo "Alice knows Bob" | ./graph-vis-cli.py
 ./graph-vis-cli.py -l data.csv -s graph.csv
 ```
 
-**Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--store` → `--repl`
+**Execution order:** connect → `--load` files → commands (positional/stdin/file) → `--store` → `--subscribe` → `--repl`
+
+`--subscribe [--format jsonl|human]` opens a long-running SSE stream over `GET /api/events`, printing one line per graph event (from any source) until Ctrl-C (exits 0). Stdlib-only; implies no REPL.
 
 Commands: `add/a/+`, `del/d/rm/-`, `list/ls/l`, `graph/g`, `clear`, `screenshot/ss`, `dom`, `ui hide/show`, `Load/L`, `store/Store/S`, `help/?/h`, `quit/q`
 
@@ -298,8 +338,8 @@ All converters work as both CLI tools and importable libraries. Only JSONL is lo
 ## Testing
 
 ```bash
-# Server unit tests (API + WebSocket + Extensions)
-PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py tests/test_extensions.py -v -p no:playwright
+# Server unit tests (API + WebSocket + SSE + Extensions)
+PYTHONPATH=. pytest tests/test_api.py tests/test_ws.py tests/test_sse.py tests/test_extensions.py -v -p no:playwright
 
 # CLI unit tests (includes store command tests)
 PYTHONPATH=. pytest tests/test_cli.py -v -p no:playwright --noconftest
