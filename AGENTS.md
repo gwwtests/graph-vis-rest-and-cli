@@ -59,7 +59,7 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/api/graph` | — | Full graph `{nodes: [...], edges: [...]}` |
+| GET | `/api/graph` | — | Full graph `{nodes: [...], edges: [...], rev}` (rev = revision counter) |
 | POST | `/api/add-node` | `{id, label, ...extras}` | Add a node (extras: vis-network styling) |
 | POST | `/api/remove-node` | `{id}` | Remove node + connected edges |
 | POST | `/api/add-edge` | `{from, to, label?, id?, ...extras}` | Add an edge (label optional, extras: styling) |
@@ -78,7 +78,12 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 
 ### WebSocket
 
-Connect to `/ws`. Receives JSON broadcast events for all mutations:
+Connect to `/ws`. Receives JSON broadcast events for all mutations. Every
+mutation event carries a monotonic `"rev"` (top-level) matching the store
+revision, so clients can detect missed events and resync from `GET /api/graph`
+(which returns the same `rev`). On WS (re)connect the browser buffers incoming
+events, loads the snapshot, then replays buffered events with `rev` > snapshot
+rev; a skipped `rev` triggers a full resync.
 
 ```json
 {"event": "add-node", "data": {"id": "Alice", "label": "Alice"}}
