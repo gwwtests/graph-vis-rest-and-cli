@@ -75,6 +75,7 @@ GRAPH_VIS_HOST=10.0.0.5 ./graph-vis-cli.py -l data.csv "g"
 | GET | `/api/dom` | — | Graph layout introspection (via browser) |
 | POST | `/api/ui` | `{input_visible}` | Toggle browser UI elements |
 | GET | `/api/read-only` | — | Check read-only status `{read_only: bool}` |
+| GET | `/api/config` | — | Client capabilities `{token_required: bool}` |
 
 ### WebSocket
 
@@ -221,6 +222,43 @@ Block all mutations while allowing viewing, dragging, zoom/pan:
 # Mutation endpoints return 403, browser /clear shows alert
 ```
 
+Read-only is enforced on **both** transports:
+
+* **REST** — mutation endpoints (`add/remove-node`, `add/remove-edge`,
+  `add-triplet`, `clear`) return `403`.
+* **WebSocket** — mutating hook actions (`add_node`, `remove_node`, `add_edge`,
+  `remove_edge`, `restyle`) are dropped (not applied to the store, not relayed);
+  the sender receives `{"error":"read-only"}`. Pure **view-state toggles**
+  (`toggle_node`, `toggle_edge`, `toggle_style`) are still applied and relayed,
+  so viewers can expand/collapse the shared graph without mutating it.
+
+### Auth token (optional)
+
+Require a shared secret for all mutations. Unset = no auth (backward compatible).
+
+```bash
+GRAPH_VIS_TOKEN=s3cret ./graph-vis-server.py
+# or: ./graph-vis-server.py --token s3cret
+```
+
+* **REST mutations** require `Authorization: Bearer <token>` (else `403`).
+* **`/ws` connect** requires `?token=<token>` (else the socket is closed / `403`
+  handshake). This applies to *all* WS traffic, not just mutations.
+* `GET /api/config` returns `{"token_required": bool}` so the browser knows
+  whether to `prompt()` for a token; it then sends the token on REST headers and
+  the WS URL. Read-only and token are independent — you can use either or both.
+
+### WebSocket Origin check
+
+`/ws` rejects cross-site connects: a browser `Origin` header that is neither
+same-host nor listed in `GRAPH_VIS_ALLOWED_ORIGINS` is refused. Non-browser
+clients (CLI, tests) send no `Origin` and are unaffected.
+
+```bash
+GRAPH_VIS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com \
+  ./graph-vis-server.py
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -230,6 +268,8 @@ Block all mutations while allowing viewing, dragging, zoom/pan:
 | `GRAPH_VIS_INPUT_MODE` | `minimal` | Initial input mode (multiline/single/minimal/none) |
 | `GRAPH_VIS_EXTENSIONS` | — | Comma-separated extension filenames |
 | `GRAPH_VIS_READ_ONLY` | — | Set to `1`/`true`/`yes` for read-only mode |
+| `GRAPH_VIS_TOKEN` | — | Require bearer token on REST mutations + `?token=` on `/ws` |
+| `GRAPH_VIS_ALLOWED_ORIGINS` | — | Comma-separated extra WS `Origin`s to accept (same-host always allowed) |
 
 ## CLI
 
