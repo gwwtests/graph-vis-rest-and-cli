@@ -282,6 +282,9 @@ See `graph-vis-cli.README.md` for full reference.
 | `.dot`, `.gv` | `scripts/converters/dot2graph/dot2graph.py` | stdlib |
 | `.mermaid`, `.mmd` | `scripts/converters/mermaid2graph/mermaid2graph.py` | stdlib |
 | `.jsonl` | `scripts/converters/jsonl2graph/jsonl2graph.py` | stdlib |
+| fleet JSONL (adapter) | `scripts/converters/fleetjsonl2graph/fleetjsonl2graph.py` | stdlib |
+
+Fleet adapter: maps `fleet_topology_tree.py -F jsonl` output to graph-vis JSONL (`rel`→`label`, `kind`→styling, `--drift` for drift). See `docs/recipes/fleet-topology-live-view.md`.
 
 ### Export (Store): graph → format
 
