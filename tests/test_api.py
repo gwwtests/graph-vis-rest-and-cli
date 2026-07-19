@@ -298,3 +298,61 @@ def test_set_input_mode_all_valid(client):
 def test_set_input_mode_invalid(client):
     r = client.post("/api/input-mode", json={"mode": "invalid"})
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Read-only mode + optional auth token (REST) + /api/config
+# ---------------------------------------------------------------------------
+
+from graph_vis_server import server_flags
+
+
+def test_read_only_blocks_rest_mutation(client):
+    server_flags["read_only"] = True
+    r = client.post("/api/add-node", json={"id": "A", "label": "A"})
+    assert r.status_code == 403
+    assert client.get("/api/graph").json()["nodes"] == []
+
+
+def test_config_token_not_required_by_default(client):
+    r = client.get("/api/config")
+    assert r.status_code == 200
+    assert r.json() == {"token_required": False}
+
+
+def test_config_token_required_when_set(client):
+    server_flags["token"] = "s3cret"
+    assert client.get("/api/config").json() == {"token_required": True}
+
+
+def test_token_required_rejects_missing_header(client):
+    server_flags["token"] = "s3cret"
+    r = client.post("/api/add-node", json={"id": "A", "label": "A"})
+    assert r.status_code == 403
+    assert client.get("/api/graph").json()["nodes"] == []
+
+
+def test_token_required_rejects_wrong_token(client):
+    server_flags["token"] = "s3cret"
+    r = client.post(
+        "/api/add-node",
+        json={"id": "A", "label": "A"},
+        headers={"Authorization": "Bearer nope"},
+    )
+    assert r.status_code == 403
+
+
+def test_token_required_accepts_correct_token(client):
+    server_flags["token"] = "s3cret"
+    r = client.post(
+        "/api/add-node",
+        json={"id": "A", "label": "A"},
+        headers={"Authorization": "Bearer s3cret"},
+    )
+    assert r.status_code == 200
+    assert client.get("/api/graph").json()["nodes"][0]["id"] == "A"
+
+
+def test_no_token_configured_allows_plain_mutation(client):
+    r = client.post("/api/add-node", json={"id": "A", "label": "A"})
+    assert r.status_code == 200
