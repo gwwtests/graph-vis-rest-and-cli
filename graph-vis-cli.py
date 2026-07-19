@@ -139,6 +139,26 @@ class GraphClient:
         return self._request("POST", "/api/ui", {"input_visible": input_visible})
 
 
+def run_converter(script_path, argv, input_text=None, timeout=60):
+    """Run a format converter script, preferring its own shebang.
+
+    Converter scripts carry PEP-723 ``uv run`` shebangs so that dependencies
+    (e.g. rdflib for .ttl/.n3) resolve automatically. When the script is
+    executable we invoke it directly so the shebang runs; otherwise we fall
+    back to the current interpreter (which only works for stdlib converters).
+
+    Returns a ``subprocess.CompletedProcess``. The timeout defaults to 60s
+    because first-run ``uv`` dependency resolution can be slow.
+    """
+    if os.access(script_path, os.X_OK):
+        cmd = [script_path, *argv]
+    else:
+        cmd = [sys.executable, script_path, *argv]
+    return subprocess.run(
+        cmd, input=input_text, capture_output=True, text=True, timeout=timeout,
+    )
+
+
 # Converter extension mapping (ingest: format → graph)
 CONVERTER_MAP = {
     ".csv": "csv2graph",
@@ -382,16 +402,13 @@ class GraphREPL(cmd.Cmd):
             print(f"Converter not found: {script_dir}")
             return
         try:
-            result = subprocess.run(
-                [sys.executable, script_dir, filepath],
-                capture_output=True, text=True, timeout=30,
-            )
+            result = run_converter(script_dir, [filepath])
             if result.returncode != 0:
                 print(f"Converter error: {result.stderr}")
                 return
             self._load_intermediate(result.stdout, filepath, ext)
         except subprocess.TimeoutExpired:
-            print("Converter timed out (30s)")
+            print("Converter timed out (60s)")
 
     do_L = do_Load
 
@@ -426,10 +443,7 @@ class GraphREPL(cmd.Cmd):
             return
         graph_json = json.dumps(graph)
         try:
-            result = subprocess.run(
-                [sys.executable, script_path],
-                input=graph_json, capture_output=True, text=True, timeout=30,
-            )
+            result = run_converter(script_path, [], input_text=graph_json)
             if result.returncode != 0:
                 print(f"Converter error: {result.stderr}")
                 return
@@ -439,7 +453,7 @@ class GraphREPL(cmd.Cmd):
             fmt_name = ext.lstrip(".")
             print(f"Stored {ne} edges, {nn} nodes to {filepath} ({fmt_name})")
         except subprocess.TimeoutExpired:
-            print("Converter timed out (30s)")
+            print("Converter timed out (60s)")
 
     do_Store = do_store
     do_S = do_store
@@ -658,10 +672,7 @@ class MultilineProcessor:
             return
         text = "\n".join(self.buffer) + "\n"
         try:
-            result = subprocess.run(
-                [sys.executable, script_dir],
-                input=text, capture_output=True, text=True, timeout=30,
-            )
+            result = run_converter(script_dir, [], input_text=text)
             if result.returncode != 0:
                 print(f"Converter error: {result.stderr}")
                 return
@@ -669,7 +680,7 @@ class MultilineProcessor:
                    "mermaid": ".mermaid"}[fmt]
             self.repl._load_intermediate(result.stdout, f"<block:{fmt}>", ext)
         except subprocess.TimeoutExpired:
-            print("Converter timed out (30s)")
+            print("Converter timed out (60s)")
 
 
 def parse_args(argv=None):

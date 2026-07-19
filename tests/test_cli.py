@@ -1,11 +1,15 @@
 """Tests for graph-vis-cli GraphClient, REPL, and mode resolution."""
 
+import importlib.util
 import json
 import os
+import subprocess
+import sys
 from unittest.mock import patch
+import pytest
 from graph_vis_cli import (GraphClient, GraphREPL, CONVERTER_MAP, EXPORT_MAP,
                            parse_args, execute_command, MultilineProcessor,
-                           execute_commands)
+                           execute_commands, run_converter)
 
 
 def test_parse_args_defaults():
@@ -494,3 +498,65 @@ def test_store_roundtrip_jsonl():
             assert result["edges"][0]["label"] == "knows"
         finally:
             os.unlink(tmppath)
+
+
+# ===========================================================================
+# run_converter: prefer the script's own shebang (uv run) over sys.executable
+# ===========================================================================
+
+
+def test_run_converter_prefers_executable_shebang():
+    """When the converter script is executable, run it directly so its
+    PEP-723 uv shebang resolves dependencies (rdflib etc.)."""
+    with patch("graph_vis_cli.os.access", return_value=True):
+        with patch("graph_vis_cli.subprocess.run") as m:
+            m.return_value = subprocess.CompletedProcess([], 0, "out", "")
+            run_converter("/conv/ttl2graph.py", ["data.ttl"])
+            cmd = m.call_args[0][0]
+            assert cmd == ["/conv/ttl2graph.py", "data.ttl"]
+            # sys.executable must NOT be prepended
+            assert cmd[0] != sys.executable
+
+
+def test_run_converter_falls_back_when_not_executable():
+    """Non-executable script falls back to the current interpreter."""
+    with patch("graph_vis_cli.os.access", return_value=False):
+        with patch("graph_vis_cli.subprocess.run") as m:
+            m.return_value = subprocess.CompletedProcess([], 0, "out", "")
+            run_converter("/conv/csv2graph.py", ["data.csv"])
+            cmd = m.call_args[0][0]
+            assert cmd == [sys.executable, "/conv/csv2graph.py", "data.csv"]
+
+
+def test_run_converter_passes_input_and_timeout():
+    """input_text and a 60s timeout are forwarded to subprocess.run."""
+    with patch("graph_vis_cli.os.access", return_value=True):
+        with patch("graph_vis_cli.subprocess.run") as m:
+            m.return_value = subprocess.CompletedProcess([], 0, "out", "")
+            run_converter("/conv/graph2ttl.py", [], input_text="graph-json")
+            assert m.call_args.kwargs["input"] == "graph-json"
+            assert m.call_args.kwargs["timeout"] == 60
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("rdflib") is not None,
+    reason="only meaningful when system python lacks rdflib (uv shebang path)",
+)
+def test_ttl_converter_runs_via_uv_shebang(tmp_path):
+    """Integration: a .ttl converter runs via its uv shebang even without
+    rdflib installed in the current interpreter."""
+    script = os.path.join(
+        os.path.dirname(__file__), "..",
+        "scripts", "converters", "ttl2graph", "ttl2graph.py",
+    )
+    if not os.access(script, os.X_OK):
+        pytest.skip("converter script not executable")
+    ttl = tmp_path / "g.ttl"
+    ttl.write_text("@prefix : <http://example.org/> .\n:Alice :knows :Bob .\n")
+    try:
+        result = run_converter(script, [str(ttl)])
+    except subprocess.TimeoutExpired:
+        pytest.skip("uv dependency resolution timed out (offline)")
+    assert result.returncode == 0, result.stderr
+    # Intermediate format: header line "<nodes> <edges>" then triplets
+    assert "Alice" in result.stdout and "Bob" in result.stdout
