@@ -5,7 +5,7 @@ def test_empty_graph(client):
     r = client.get("/api/graph")
     assert r.status_code == 200
     data = r.json()
-    assert data == {"nodes": [], "edges": []}
+    assert data == {"nodes": [], "edges": [], "rev": 0}
 
 
 def test_add_node(client):
@@ -133,7 +133,8 @@ def test_clear_graph(client):
     assert r.json()["ok"] is True
 
     graph = client.get("/api/graph").json()
-    assert graph == {"nodes": [], "edges": []}
+    assert graph["nodes"] == []
+    assert graph["edges"] == []
 
 
 def test_clear_empty_graph(client):
@@ -298,3 +299,53 @@ def test_set_input_mode_all_valid(client):
 def test_set_input_mode_invalid(client):
     r = client.post("/api/input-mode", json={"mode": "invalid"})
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Revision counter (resync support)
+# ---------------------------------------------------------------------------
+
+def test_graph_includes_rev(client):
+    """GET /api/graph exposes a monotonic revision counter."""
+    data = client.get("/api/graph").json()
+    assert "rev" in data
+    assert data["rev"] == 0
+
+
+def test_rev_increments_on_add_node(client):
+    assert client.get("/api/graph").json()["rev"] == 0
+    client.post("/api/add-node", json={"id": "A", "label": "A"})
+    assert client.get("/api/graph").json()["rev"] == 1
+
+
+def test_rev_increments_on_every_mutation(client):
+    """Each mutation bumps rev by exactly one, in order."""
+    seen = [client.get("/api/graph").json()["rev"]]
+    client.post("/api/add-node", json={"id": "A", "label": "A"})
+    seen.append(client.get("/api/graph").json()["rev"])
+    client.post("/api/add-node", json={"id": "B", "label": "B"})
+    seen.append(client.get("/api/graph").json()["rev"])
+    client.post("/api/add-edge", json={"from": "A", "to": "B", "label": "x"})
+    seen.append(client.get("/api/graph").json()["rev"])
+    client.post("/api/add-triplet",
+                json={"subject": "C", "predicate": "p", "object": "D"})
+    seen.append(client.get("/api/graph").json()["rev"])
+    client.post("/api/remove-node", json={"id": "A"})
+    seen.append(client.get("/api/graph").json()["rev"])
+    client.post("/api/remove-edge", json={"id": "C-p-D"})
+    seen.append(client.get("/api/graph").json()["rev"])
+    client.post("/api/clear")
+    seen.append(client.get("/api/graph").json()["rev"])
+    assert seen == [0, 1, 2, 3, 4, 5, 6, 7]
+
+
+def test_rev_not_bumped_by_non_mutations(client):
+    """Read-only endpoints and settings do not advance the graph revision."""
+    client.post("/api/add-node", json={"id": "A", "label": "A"})
+    rev = client.get("/api/graph").json()["rev"]
+    # Settings/introspection endpoints must not touch the graph revision.
+    client.get("/api/graph")
+    client.post("/api/highlight-mode", json={"mode": "fade"})
+    client.post("/api/input-mode", json={"mode": "minimal"})
+    client.get("/api/read-only")
+    assert client.get("/api/graph").json()["rev"] == rev

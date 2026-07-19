@@ -9,6 +9,7 @@ def reset_state():
     """Reset graph store, connection manager, and highlight settings before each test."""
     store.nodes.clear()
     store.edges.clear()
+    store.rev = 0
     manager.active_connections.clear()
     highlight_settings.update({
         "mode": "none",

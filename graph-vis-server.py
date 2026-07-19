@@ -77,6 +77,15 @@ class GraphStore:
     def __init__(self):
         self.nodes: dict[str, dict] = {}
         self.edges: dict[str, dict] = {}
+        # Monotonic revision counter, incremented on every graph mutation.
+        # Broadcast in every mutation event and in GET /api/graph so clients
+        # can detect gaps / stale state and resync (see bump()).
+        self.rev: int = 0
+
+    def bump(self) -> int:
+        """Increment and return the revision counter (one bump per mutation)."""
+        self.rev += 1
+        return self.rev
 
     def add_node(self, node_id: str, label: str, **extras) -> dict:
         node = {"id": node_id, "label": label, **extras}
@@ -123,6 +132,7 @@ class GraphStore:
         return {
             "nodes": list(self.nodes.values()),
             "edges": list(self.edges.values()),
+            "rev": self.rev,
         }
 
 
@@ -155,6 +165,17 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+async def broadcast_mutation(event: str, data: dict) -> int:
+    """Bump the store revision and broadcast a graph-mutation event.
+
+    Every mutation event carries the new ``rev`` so clients can detect gaps
+    (missed events) and resync from GET /api/graph.
+    """
+    rev = store.bump()
+    await manager.broadcast({"event": event, "data": data, "rev": rev})
+    return rev
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +297,7 @@ async def add_node(req: AddNodeRequest):
     require_writable()
     extras = req.model_extra or {}
     node = store.add_node(req.id, req.label, **extras)
-    await manager.broadcast({"event": "add-node", "data": node})
+    await broadcast_mutation("add-node", node)
     return {"ok": True, "node": node}
 
 
@@ -284,10 +305,10 @@ async def add_node(req: AddNodeRequest):
 async def remove_node(req: RemoveNodeRequest):
     require_writable()
     removed_edges = store.remove_node(req.id)
-    await manager.broadcast({
-        "event": "remove-node",
-        "data": {"id": req.id, "connected_edges": removed_edges},
-    })
+    await broadcast_mutation(
+        "remove-node",
+        {"id": req.id, "connected_edges": removed_edges},
+    )
     return {"ok": True, "removed_edges": removed_edges}
 
 
@@ -296,7 +317,7 @@ async def add_edge(req: AddEdgeRequest):
     require_writable()
     extras = req.model_extra or {}
     edge = store.add_edge(req.edge_from, req.edge_to, req.label, req.id, **extras)
-    await manager.broadcast({"event": "add-edge", "data": edge})
+    await broadcast_mutation("add-edge", edge)
     return {"ok": True, "edge": edge}
 
 
@@ -304,7 +325,7 @@ async def add_edge(req: AddEdgeRequest):
 async def remove_edge(req: RemoveEdgeRequest):
     require_writable()
     removed = store.remove_edge(req.id)
-    await manager.broadcast({"event": "remove-edge", "data": {"id": req.id}})
+    await broadcast_mutation("remove-edge", {"id": req.id})
     return {"ok": True, "removed": removed}
 
 
@@ -313,7 +334,7 @@ async def clear_graph():
     require_writable()
     store.nodes.clear()
     store.edges.clear()
-    await manager.broadcast({"event": "clear", "data": {}})
+    await broadcast_mutation("clear", {})
     return {"ok": True}
 
 
@@ -362,15 +383,12 @@ async def get_extensions():
 async def add_triplet(req: AddTripletRequest):
     require_writable()
     result = store.add_triplet(req.subject, req.predicate, req.object)
-    await manager.broadcast({
-        "event": "add-triplet",
-        "data": {
-            "subject": req.subject,
-            "predicate": req.predicate,
-            "object": req.object,
-            "nodes": result["nodes"],
-            "edge": result["edge"],
-        },
+    await broadcast_mutation("add-triplet", {
+        "subject": req.subject,
+        "predicate": req.predicate,
+        "object": req.object,
+        "nodes": result["nodes"],
+        "edge": result["edge"],
     })
     return {"ok": True, **result}
 
@@ -524,10 +542,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 if msg.get("event") == "action":
                     action = msg.get("data", {})
                     _apply_action_to_store(action)
+                    # A relayed action mutates the store — bump the revision
+                    # and carry it in the relayed payload so other clients keep
+                    # their rev in sync and can detect gaps.
+                    msg["rev"] = store.bump()
+                    relay_text = json.dumps(msg)
                     for conn in list(manager.active_connections):
                         if conn is not websocket:
                             try:
-                                await conn.send_text(text)
+                                await conn.send_text(relay_text)
                             except Exception:
                                 manager.disconnect(conn)
                     continue

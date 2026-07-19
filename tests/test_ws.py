@@ -104,6 +104,43 @@ def test_ws_broadcast_on_input_mode(client):
         assert msg["data"]["mode"] == "minimal"
 
 
+def test_ws_event_includes_rev(client):
+    """Every mutation broadcast carries the new revision counter."""
+    with client.websocket_connect("/ws") as ws:
+        client.post("/api/add-node", json={"id": "A", "label": "A"})
+        msg = json.loads(ws.receive_text())
+        assert msg["event"] == "add-node"
+        assert msg["rev"] == 1
+
+
+def test_ws_rev_monotonic_across_events(client):
+    """rev increases by one on each successive broadcast event."""
+    with client.websocket_connect("/ws") as ws:
+        client.post("/api/add-node", json={"id": "A", "label": "A"})
+        client.post("/api/add-node", json={"id": "B", "label": "B"})
+        client.post("/api/add-edge", json={"from": "A", "to": "B", "label": "x"})
+        revs = [json.loads(ws.receive_text())["rev"] for _ in range(3)]
+        assert revs == [1, 2, 3]
+
+
+def test_ws_action_relay_includes_rev(client):
+    """A hook action relayed between clients bumps and carries rev (resync)."""
+    with client.websocket_connect("/ws") as ws1:
+        with client.websocket_connect("/ws") as ws2:
+            # ws1 sends a mutating hook action; server relays to ws2 with rev.
+            ws1.send_text(json.dumps({
+                "event": "action",
+                "data": {"action": "add_node", "id": "Z", "label": "Z"},
+            }))
+            msg = json.loads(ws2.receive_text())
+            assert msg["event"] == "action"
+            assert msg["rev"] == 1
+    # Store reflects the relayed mutation and its revision.
+    graph = client.get("/api/graph").json()
+    assert graph["rev"] == 1
+    assert any(n["id"] == "Z" for n in graph["nodes"])
+
+
 def test_ws_disconnect_handling(client):
     with client.websocket_connect("/ws"):
         pass  # disconnects on exit
