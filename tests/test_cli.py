@@ -5,7 +5,8 @@ import os
 from unittest.mock import patch
 from graph_vis_cli import (GraphClient, GraphREPL, CONVERTER_MAP, EXPORT_MAP,
                            parse_args, execute_command, MultilineProcessor,
-                           execute_commands)
+                           execute_commands, format_event_human,
+                           format_event_jsonl, subscribe_loop)
 
 
 def test_parse_args_defaults():
@@ -494,3 +495,150 @@ def test_store_roundtrip_jsonl():
             assert result["edges"][0]["label"] == "knows"
         finally:
             os.unlink(tmppath)
+
+
+# ---------------------------------------------------------------------------
+# Subscribe mode: arg parsing, event formatting, SSE stream loop
+# ---------------------------------------------------------------------------
+
+import io
+
+
+def test_parse_args_subscribe_defaults():
+    args = parse_args(["--subscribe"])
+    assert args.subscribe is True
+    assert args.format == "human"
+
+
+def test_parse_args_subscribe_format_jsonl():
+    args = parse_args(["--subscribe", "--format", "jsonl"])
+    assert args.subscribe is True
+    assert args.format == "jsonl"
+
+
+def test_parse_args_format_default_without_subscribe():
+    args = parse_args([])
+    assert args.subscribe is False
+    assert args.format == "human"
+
+
+def test_format_event_human_add_node():
+    assert format_event_human({"event": "add-node", "data": {"id": "Alice"}}) \
+        == "+ node Alice"
+
+
+def test_format_event_human_remove_node():
+    assert format_event_human({"event": "remove-node", "data": {"id": "Alice"}}) \
+        == "- node Alice"
+
+
+def test_format_event_human_add_edge():
+    evt = {"event": "add-edge",
+           "data": {"id": "A-knows-B", "from": "A", "to": "B", "label": "knows"}}
+    assert format_event_human(evt) == "+ edge A-knows-B"
+
+
+def test_format_event_human_remove_edge():
+    assert format_event_human({"event": "remove-edge", "data": {"id": "A-knows-B"}}) \
+        == "- edge A-knows-B"
+
+
+def test_format_event_human_add_triplet():
+    evt = {"event": "add-triplet",
+           "data": {"subject": "A", "predicate": "knows", "object": "B"}}
+    assert format_event_human(evt) == "+ triplet A knows B"
+
+
+def test_format_event_human_clear():
+    assert format_event_human({"event": "clear", "data": {}}) == "clear"
+
+
+def test_format_event_human_input_mode():
+    assert format_event_human({"event": "input-mode", "data": {"mode": "minimal"}}) \
+        == "input-mode minimal"
+
+
+def test_format_event_human_action():
+    evt = {"event": "action", "data": {"action": "toggle_node", "id": "Alice"}}
+    assert format_event_human(evt) == "action toggle_node Alice"
+
+
+def test_format_event_human_unknown_event():
+    evt = {"event": "ext:foo:bar", "data": {"x": 1}}
+    out = format_event_human(evt)
+    assert out.startswith("ext:foo:bar ")
+    assert '"x":1' in out
+
+
+def test_format_event_human_tolerates_rev_field():
+    # An extra rev field must not break formatting (collab-resync overlap).
+    evt = {"event": "add-node", "data": {"id": "A"}, "rev": 3}
+    assert format_event_human(evt) == "+ node A"
+
+
+def test_format_event_jsonl_roundtrip():
+    evt = {"event": "add-node", "data": {"id": "A", "label": "A"}, "rev": 2}
+    line = format_event_jsonl(evt)
+    assert json.loads(line) == evt
+    assert "\n" not in line
+
+
+def _fake_sse_response(text):
+    """Build a fake urlopen response: iterable of byte lines with close()."""
+    return io.BytesIO(text.encode("utf-8"))
+
+
+def test_subscribe_loop_human_format():
+    sse = (
+        ": connected\n"
+        "\n"
+        'data: {"event": "add-node", "data": {"id": "Alice"}}\n'
+        "\n"
+        ": ping\n"
+        "\n"
+        'data: {"event": "add-triplet", "data": {"subject": "A", "predicate": "knows", "object": "B"}}\n'
+        "\n"
+    )
+    client = GraphClient("127.0.0.1", 7849)
+    out = io.StringIO()
+    with patch("urllib.request.urlopen", return_value=_fake_sse_response(sse)):
+        rc = subscribe_loop(client, fmt="human", stream=out)
+    assert rc == 0
+    lines = out.getvalue().splitlines()
+    assert lines == ["+ node Alice", "+ triplet A knows B"]
+
+
+def test_subscribe_loop_jsonl_format():
+    sse = (
+        'data: {"event": "add-node", "data": {"id": "Alice"}}\n'
+        "\n"
+        'data: {"event": "clear", "data": {}}\n'
+        "\n"
+    )
+    client = GraphClient("127.0.0.1", 7849)
+    out = io.StringIO()
+    with patch("urllib.request.urlopen", return_value=_fake_sse_response(sse)):
+        rc = subscribe_loop(client, fmt="jsonl", stream=out)
+    assert rc == 0
+    lines = out.getvalue().splitlines()
+    assert json.loads(lines[0]) == {"event": "add-node", "data": {"id": "Alice"}}
+    assert json.loads(lines[1]) == {"event": "clear", "data": {}}
+
+
+def test_subscribe_loop_skips_comments_and_blank():
+    sse = ": connected\n\n: ping\n\n"
+    client = GraphClient("127.0.0.1", 7849)
+    out = io.StringIO()
+    with patch("urllib.request.urlopen", return_value=_fake_sse_response(sse)):
+        rc = subscribe_loop(client, fmt="human", stream=out)
+    assert rc == 0
+    assert out.getvalue() == ""
+
+
+def test_subscribe_loop_connection_error_returns_1():
+    import urllib.error
+    client = GraphClient("127.0.0.1", 7849)
+    with patch("urllib.request.urlopen",
+               side_effect=urllib.error.URLError("refused")):
+        rc = subscribe_loop(client, fmt="human", stream=io.StringIO())
+    assert rc == 1

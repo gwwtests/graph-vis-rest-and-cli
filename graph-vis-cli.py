@@ -672,6 +672,94 @@ class MultilineProcessor:
             print("Converter timed out (30s)")
 
 
+# ---------------------------------------------------------------------------
+# Subscribe mode — stream graph events from /api/events (Server-Sent Events)
+# ---------------------------------------------------------------------------
+
+def format_event_jsonl(evt):
+    """Format an event as a single compact JSON line (raw passthrough)."""
+    return json.dumps(evt, separators=(",", ":"))
+
+
+def format_event_human(evt):
+    """Format an event as a short human-readable line.
+
+    Examples:
+        + node Alice
+        - edge A-knows-B
+        + triplet A knows B
+    """
+    name = evt.get("event", "?")
+    data = evt.get("data", {}) or {}
+    if name == "add-node":
+        return f"+ node {data.get('id', '?')}"
+    if name == "remove-node":
+        return f"- node {data.get('id', '?')}"
+    if name == "add-edge":
+        return f"+ edge {data.get('id', '?')}"
+    if name == "remove-edge":
+        return f"- edge {data.get('id', '?')}"
+    if name == "add-triplet":
+        return (f"+ triplet {data.get('subject', '?')} "
+                f"{data.get('predicate', '?')} {data.get('object', '?')}")
+    if name == "clear":
+        return "clear"
+    if name == "input-mode":
+        return f"input-mode {data.get('mode', '?')}"
+    if name == "highlight-mode":
+        return f"highlight-mode {data.get('mode', '?')}"
+    if name == "action":
+        act = data.get("action", "?")
+        target = data.get("id") or data.get("from") or ""
+        return f"action {act} {target}".rstrip()
+    # Unknown / extension events: name + compact JSON payload
+    return f"{name} {json.dumps(data, separators=(',', ':'))}"
+
+
+def subscribe_loop(client, fmt="human", stream=sys.stdout):
+    """Stream events from /api/events, printing one line per event.
+
+    Uses only stdlib (urllib streaming read). Blocks until the connection ends
+    or Ctrl-C. Returns an exit code (0 on clean end / Ctrl-C, 1 on error).
+    """
+    url = f"{client.base_url}/api/events"
+    req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+    formatter = format_event_jsonl if fmt == "jsonl" else format_event_human
+    try:
+        resp = urllib.request.urlopen(req)
+    except urllib.error.URLError as e:
+        print(f"Error: cannot connect to {url}: {e}", file=sys.stderr)
+        return 1
+    try:
+        data_lines = []
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").rstrip("\r\n")
+            if line == "":
+                # Blank line dispatches the accumulated event.
+                if data_lines:
+                    payload = "\n".join(data_lines)
+                    data_lines = []
+                    try:
+                        evt = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    print(formatter(evt), file=stream, flush=True)
+                continue
+            if line.startswith(":"):
+                continue  # heartbeat / comment
+            if line.startswith("data:"):
+                data_lines.append(line[len("data:"):].lstrip(" "))
+            # other SSE fields (event:, id:, retry:) are ignored
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+    return 0
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="CLI for the graph visualization server. "
@@ -707,6 +795,11 @@ Environment variables:
                         help="Read commands from file")
     parser.add_argument("--repl", action="store_true",
                         help="Enter interactive REPL mode")
+    parser.add_argument("--subscribe", action="store_true",
+                        help="Stream graph events from /api/events (SSE) until "
+                             "Ctrl-C; implies no REPL")
+    parser.add_argument("--format", choices=("jsonl", "human"), default="human",
+                        help="Output format for --subscribe (default: human)")
 
     # Pre-loading
     parser.add_argument("-l", "--load", action="append", default=[],
@@ -763,12 +856,17 @@ def main():
     if args.load:
         load_files(repl, args.load)
 
-    # Step 2: Execute commands from chosen input mode
+    # Step 2: Execute commands from chosen input mode.
+    # (Skip the auto-stdin/auto-REPL fallback when subscribing — subscribe is
+    # a long-running stream, not an interactive session, and must not block on
+    # stdin.)
     if args.commands:
         execute_commands(repl, args.commands)
     elif args.input:
         with open(args.input) as f:
             execute_commands(repl, f)
+    elif args.subscribe:
+        pass
     elif args.stdin or (not args.commands and not args.repl):
         if not sys.stdin.isatty() or args.stdin:
             execute_commands(repl, sys.stdin)
@@ -779,7 +877,12 @@ def main():
     if args.store:
         repl.do_store(args.store)
 
-    # Step 4: Enter REPL if requested
+    # Step 4: Subscribe (long-running stream); implies no REPL
+    if args.subscribe:
+        rc = subscribe_loop(client, args.format)
+        sys.exit(rc)
+
+    # Step 5: Enter REPL if requested
     if args.repl:
         try:
             repl.cmdloop()
