@@ -463,10 +463,20 @@
                     }
                     nodes.remove(data.id);
                     break;
-                case 'add-edge':
-                    if (!edges.get(data.id)) edges.add(data);
-                    highlightMgr.registerEdge(data.id);
+                case 'add-edge': {
+                    // Endpoint nodes auto-created server-side arrive as data.nodes
+                    // (mirrors add-triplet), so add them before the edge.
+                    const { nodes: newNodes, ...edgeData } = data;
+                    if (newNodes) newNodes.forEach(n => {
+                        if (!nodes.get(n.id)) {
+                            nodes.add(n);
+                            highlightMgr.registerNode(n.id);
+                        }
+                    });
+                    if (!edges.get(edgeData.id)) edges.add(edgeData);
+                    highlightMgr.registerEdge(edgeData.id);
                     break;
+                }
                 case 'remove-edge':
                     highlightMgr.unregisterEdge(data.id);
                     edges.remove(data.id);
