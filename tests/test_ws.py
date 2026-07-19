@@ -141,6 +141,20 @@ def test_ws_action_relay_includes_rev(client):
     assert any(n["id"] == "Z" for n in graph["nodes"])
 
 
+def test_ws_action_originator_gets_rev_ack(client):
+    """The action originator (excluded from the relay) is acked its new rev,
+    so its client-side revision counter stays in sync and does not misfire
+    gap-detection resyncs on subsequent remote events."""
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(json.dumps({
+            "event": "action",
+            "data": {"action": "add_node", "id": "Q", "label": "Q"},
+        }))
+        ack = json.loads(ws.receive_text())
+        assert ack["event"] == "rev-sync"
+        assert ack["rev"] == 1
+
+
 def test_ws_disconnect_handling(client):
     with client.websocket_connect("/ws"):
         pass  # disconnects on exit

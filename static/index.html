@@ -540,6 +540,10 @@
                 case 'action':
                     executeAction(data, false);  // false = don't re-broadcast
                     break;
+                case 'rev-sync':
+                    // No graph change: server acking our own action's rev so
+                    // applyWsEvent() can advance currentRev in order.
+                    break;
                 default:
                     return false;  // unknown event: not applied
             }
@@ -583,10 +587,13 @@
             } finally {
                 bufferMode = false;
                 resyncing = false;
-                // Replay any events buffered during the fetch.
+                // Replay any events buffered during the fetch. Route through
+                // handleWsEvent so that if a replayed event triggers a nested
+                // resync (gap), the remaining events re-buffer instead of
+                // applying past the snapshot rebuild.
                 const pending = eventBuffer;
                 eventBuffer = [];
-                pending.forEach(m => applyWsEvent(m));
+                pending.forEach(m => handleWsEvent(m));
             }
         }
 

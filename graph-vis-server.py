@@ -553,6 +553,15 @@ async def websocket_endpoint(websocket: WebSocket):
                                 await conn.send_text(relay_text)
                             except Exception:
                                 manager.disconnect(conn)
+                    # Ack the new rev back to the originator (it is excluded
+                    # from the relay above). Without this its rev lags and every
+                    # later remote event would look like a gap → spurious resync.
+                    try:
+                        await websocket.send_text(
+                            json.dumps({"event": "rev-sync", "rev": msg["rev"]})
+                        )
+                    except Exception:
+                        manager.disconnect(websocket)
                     continue
                 # Extension events: relay to all other clients
                 if "event" in msg and str(msg["event"]).startswith("ext:"):
