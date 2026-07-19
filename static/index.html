@@ -129,6 +129,14 @@
         // ---------------------------------------------------------------
         // API integration
         // ---------------------------------------------------------------
+        // Optional auth token (set from GET /api/config when required).
+        let authToken = null;
+        // Build JSON headers, adding a bearer token when one is configured.
+        function jsonHeaders() {
+            const h = {'Content-Type': 'application/json'};
+            if (authToken) h['Authorization'] = 'Bearer ' + authToken;
+            return h;
+        }
         const api = {
             async getGraph() {
                 const r = await fetch('/api/graph');
@@ -137,14 +145,14 @@
             async addNode(id, label) {
                 return fetch('/api/add-node', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: jsonHeaders(),
                     body: JSON.stringify({id, label}),
                 });
             },
             async removeNode(id) {
                 return fetch('/api/remove-node', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: jsonHeaders(),
                     body: JSON.stringify({id}),
                 });
             },
@@ -153,21 +161,21 @@
                 if (id) body.id = id;
                 return fetch('/api/add-edge', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: jsonHeaders(),
                     body: JSON.stringify(body),
                 });
             },
             async removeEdge(id) {
                 return fetch('/api/remove-edge', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: jsonHeaders(),
                     body: JSON.stringify({id}),
                 });
             },
             async addTriplet(subject, predicate, object) {
                 return fetch('/api/add-triplet', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: jsonHeaders(),
                     body: JSON.stringify({subject, predicate, object}),
                 });
             },
@@ -421,7 +429,8 @@
             if (ws && ws.readyState <= WebSocket.OPEN) return;
             setWsState('connecting');
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(proto + '//' + location.host + '/ws');
+            const qs = authToken ? '?token=' + encodeURIComponent(authToken) : '';
+            ws = new WebSocket(proto + '//' + location.host + '/ws' + qs);
 
             ws.onopen = () => {
                 setWsState('connected');
@@ -928,7 +937,7 @@
                 if (serverReadOnly) {
                     alert('Server is in read-only mode. /clear is disabled.');
                 } else {
-                    fetch('/api/clear', {method: 'POST'});
+                    fetch('/api/clear', {method: 'POST', headers: jsonHeaders()});
                 }
                 clearInputText();
                 return true;
@@ -1062,6 +1071,14 @@
                 serverReadOnly = ro.read_only;
             } catch (err) {
                 console.error('Failed to check read-only status:', err);
+            }
+            try {
+                const cfg = await fetch('/api/config').then(r => r.json());
+                if (cfg.token_required && !authToken) {
+                    authToken = prompt('This server requires an access token:') || null;
+                }
+            } catch (err) {
+                console.error('Failed to check server config:', err);
             }
             connectWebSocket();
             await loadExtensions();
